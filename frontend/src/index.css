@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #6366F1;
+  --color-primary-hover: #4F46E5;
+  --color-secondary: #8B5CF6;
+  --color-accent: #EC4899;
+  --color-surface: #FFFFFF;
+  --color-background: #FAFAFA;
+  --color-text-primary: #1F2937;
+  --color-text-secondary: #6B7280;
+  --color-border: #E5E7EB;
+  
+  --color-primary-dark: #818CF8;
+  --color-primary-hover-dark: #6366F1;
+  --color-secondary-dark: #A78BFA;
+  --color-accent-dark: #F472B6;
+  --color-surface-dark: #1E293B;
+  --color-background-dark: #0F172A;
+  --color-text-primary-dark: #F1F5F9;
+  --color-text-secondary-dark: #94A3B8;
+  --color-border-dark: #334155;
+  
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    --background: #FAFAFA;
+    --surface: #FFFFFF;
+    --text-primary: #1F2937;
+    --text-secondary: #6B7280;
+    --border: #E5E7EB;
+    --primary: #6366F1;
+    --primary-hover: #4F46E5;
+    --secondary: #8B5CF6;
+    --accent: #EC4899;
+  }
+  
+  .dark {
+    --background: #0F172A;
+    --surface: #1E293B;
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --border: #334155;
+    --primary: #818CF8;
+    --primary-hover: #6366F1;
+    --secondary: #A78BFA;
+    --accent: #F472B6;
+  }
+  
+  * {
+    border-color: var(--border);
+  }
+  
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--background);
+    color: var(--text-primary);
+    margin: 0;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none;
+  }
+  
+  .btn-primary {
+    @apply bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)];
+  }
+  
+  .btn-secondary {
+    @apply bg-[var(--secondary)] text-white hover:opacity-90;
+  }
+  
+  .btn-outline {
+    @apply border border-[var(--border)] bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800;
+  }
+  
+  .btn-ghost {
+    @apply bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800;
+  }
+  
+  .card {
+    @apply rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-sm;
+  }
+  
+  .input {
+    @apply flex h-10 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm placeholder:text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  
+  .textarea {
+    @apply flex min-h-[80px] w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm placeholder:text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
