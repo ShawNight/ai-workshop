@@ -1,16 +1,38 @@
 import os
 import uuid
 import subprocess
+import threading
+import time
+import shutil
+import re
+import json
 from flask import Blueprint, request, jsonify, send_file
 import requests
 from datetime import datetime
+from database import get_connection
 
 music_bp = Blueprint("music", __name__)
 
-MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
+# MiniMax API 配置
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
 MINIMAX_API_URL = "https://api.minimaxi.com/v1/lyrics_generation"
+MINIMAX_CHAT_URL = "https://api.minimaxi.com/v1/chat/completions"
 
+# 检查 mmx CLI 是否可用
+MMX_AVAILABLE = bool(shutil.which("mmx"))
+
+# 任务状态存储（带过期清理）
 jobs = {}
+JOB_EXPIRY_SECONDS = 3600  # 1小时后自动清理
+
+
+def cleanup_expired_jobs():
+    """清理过期任务"""
+    now = time.time()
+    expired = [jid for jid, job in jobs.items()
+               if now - job.get("created_at", 0) > JOB_EXPIRY_SECONDS]
+    for jid in expired:
+        del jobs[jid]
 
 
 def ensure_uploads_dir():
@@ -19,23 +41,130 @@ def ensure_uploads_dir():
     return upload_dir
 
 
-def generate_lyrics_with_llm(
-    theme, mood, genre, current_lyrics="", conversation=None, user_request=""
-):
+def sanitize_filename(name):
+    """清理文件名，移除非法字符"""
+    # 移除或替换非法字符
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)
+    # 移除前后空格
+    name = name.strip()
+    # 如果为空，使用默认名称
+    if not name:
+        name = "AI创作歌曲"
+    # 限制长度
+    if len(name) > 50:
+        name = name[:50]
+    return name
+
+
+def generate_song_title_with_llm(theme, mood, genre, lyrics_preview):
+    """使用MiniMax文本模型生成歌名"""
+    if not MINIMAX_API_KEY:
+        return sanitize_filename(theme) or "AI创作歌曲"
+
+    try:
+        prompt = f"""请根据以下信息为歌曲生成一个简短、优美的歌名（不超过10个字）：
+
+主题：{theme}
+风格：{mood} {genre}
+歌词片段：{lyrics_preview[:200]}
+
+只返回歌名本身，不要加任何前缀、引号或解释。"""
+
+        response = requests.post(
+            MINIMAX_CHAT_URL,
+            json={
+                "model": "MiniMax-M2.7",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 20
+            },
+            headers={
+                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=30,
+        )
+
+        data = response.json()
+        if data.get("base_resp", {}).get("status_code") != 0:
+            print(f"[歌名生成] API error: {data}")
+            return sanitize_filename(theme) or "AI创作歌曲"
+
+        # 从choices中获取歌名
+        choices = data.get("choices", [])
+        if choices and len(choices) > 0:
+            title = choices[0].get("message", {}).get("content", "").strip()
+            # 清理可能的引号和多余字符
+            title = re.sub(r'^["\']|["\']$', '', title)
+            title = re.sub(r'\n.*', '', title)  # 只取第一行
+            if title:
+                return sanitize_filename(title)
+
+        return sanitize_filename(theme) or "AI创作歌曲"
+    except Exception as e:
+        print(f"[歌名生成] Error: {e}")
+        return sanitize_filename(theme) or "AI创作歌曲"
+
+
+def extract_song_title(lyrics_content, theme=""):
+    """从歌词内容中提取歌名"""
+    lines = lyrics_content.strip().split('\n')
+
+    # 尝试匹配多种歌名格式
+    for line in lines[:10]:  # 检查前10行
+        line_stripped = line.strip()
+
+        # 格式1: 歌名：xxx 或 歌名: xxx
+        match = re.match(r'歌名[：:]\s*(.+)', line_stripped)
+        if match:
+            title = match.group(1).strip()
+            # 清除可能的引号
+            title = re.sub(r'^["\']|["\']$', '', title)
+            return sanitize_filename(title)
+
+        # 格式2: 标题：xxx
+        match = re.match(r'标题[：:]\s*(.+)', line_stripped)
+        if match:
+            return sanitize_filename(match.group(1).strip())
+
+        # 格式3: Title: xxx 或 TITLE: xxx
+        match = re.match(r'Title[：:]\s*(.+)', line_stripped, re.IGNORECASE)
+        if match:
+            return sanitize_filename(match.group(1).strip())
+
+        # 格式4: 《歌名》 格式
+        match = re.search(r'《(.+)》', line_stripped)
+        if match:
+            return sanitize_filename(match.group(1).strip())
+
+        # 格式5: 第一行非结构标识的内容（不含[Verse]等）
+        if line_stripped and not re.match(r'^\[.*\]', line_stripped):
+            # 检查是否是有效的歌名（不太长，不含特殊歌词标记）
+            if len(line_stripped) < 30 and not re.search(r'(verse|chorus|bridge|intro|outro)', line_stripped, re.IGNORECASE):
+                # 如果第一行看起来像歌名（短且有意义）
+                if len(line_stripped) > 0 and not line_stripped.startswith('#'):
+                    return sanitize_filename(line_stripped)
+
+    # 如果都找不到，使用主题作为歌名
+    if theme:
+        return sanitize_filename(theme)
+
+    return "AI创作歌曲"
+
+
+def generate_lyrics_with_llm(prompt_text):
+    """使用MiniMax生成歌词"""
     if not MINIMAX_API_KEY:
         raise ValueError("未配置 MiniMax API Key，请在 .env 文件中设置 MINIMAX_API_KEY")
-
-    if current_lyrics:
-        prompt = f'用户当前歌词：\n{current_lyrics}\n\n用户修改意见："{user_request or "请改进这段歌词"}"\n\n请根据用户的修改意见改进歌词，保持主题「{theme}」，风格{mood} {genre}。'
-    else:
-        prompt = f"一首关于{theme}的{mood}{genre}歌曲"
 
     try:
         response = requests.post(
             MINIMAX_API_URL,
             json={
                 "mode": "write_full_song",
-                "prompt": prompt,
+                "prompt": prompt_text,
             },
             headers={
                 "Authorization": f"Bearer {MINIMAX_API_KEY}",
@@ -45,6 +174,8 @@ def generate_lyrics_with_llm(
         )
 
         data = response.json()
+        print(f"[MiniMax API] Response: {json.dumps(data, ensure_ascii=False, indent=2)[:500]}")
+
         if data.get("base_resp", {}).get("status_code") != 0:
             raise ValueError(
                 f"MiniMax API error: status_code={data.get('base_resp', {}).get('status_code')}"
@@ -54,41 +185,162 @@ def generate_lyrics_with_llm(
         if not lyrics_content:
             raise ValueError("MiniMax API returned empty content")
 
+        # 直接使用 API 返回的歌名
+        song_title = data.get("song_title", "AI创作歌曲")
+        print(f"[MiniMax API] Title from API: {song_title}")
+
         return {
             "content": lyrics_content,
-            "version": 1 if current_lyrics else 0,
+            "title": song_title,
             "updatedAt": datetime.now().isoformat(),
         }
     except Exception as e:
         raise
 
 
+def save_music_to_db(job_id, title, user_description, prompt, lyrics, audio_file):
+    """保存已完成的音乐到数据库"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        cursor.execute("""
+            INSERT INTO music_history (id, title, user_description, prompt, lyrics, audio_file, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (job_id, title, user_description, prompt, lyrics, audio_file, now))
+        conn.commit()
+
+
+@music_bp.route("/prompt", methods=["POST"])
+def generate_prompt():
+    """根据用户简单描述生成完整创作提示词"""
+    data = request.get_json()
+    user_description = data.get("description", "")
+
+    if not user_description:
+        return jsonify({"success": False, "error": "请输入歌曲描述"}), 400
+
+    if not MINIMAX_API_KEY:
+        return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
+
+    prompt_text = f"""根据用户描述生成歌曲创作提示词，只返回JSON，不要任何解释。
+
+用户描述：{user_description}
+
+返回格式示例：
+{{"theme":"春天","mood":"欢快","genre":"流行","description":"描述万物复苏的美好景象"}}
+
+请直接返回符合格式的JSON，不要包含任何其他文字。"""
+
+    try:
+        response = requests.post(
+            MINIMAX_CHAT_URL,
+            json={
+                "model": "MiniMax-M2.7",
+                "messages": [
+                    {"role": "user", "content": prompt_text}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 300
+            },
+            headers={
+                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=30,
+        )
+
+        result = response.json()
+        print(f"[提示词生成] API Response: {json.dumps(result, ensure_ascii=False)[:800]}")
+
+        # MiniMax API 返回格式可能有多种
+        # 标准 OpenAI 格式: choices[0].message.content
+        # MiniMax 格式: choices[0].text 或 reply
+        content = None
+
+        # 尝试多种响应格式
+        if "choices" in result:
+            choice = result["choices"][0]
+            if "message" in choice:
+                content = choice["message"].get("content", "")
+            elif "text" in choice:
+                content = choice.get("text", "")
+
+        if "reply" in result:
+            content = result.get("reply", "")
+
+        if not content:
+            # 检查是否有错误
+            if "error" in result:
+                error_msg = result.get("error", {}).get("message", "API调用失败")
+                return jsonify({"success": False, "error": error_msg}), 500
+
+            return jsonify({"success": False, "error": "AI未返回有效内容"}), 500
+
+        content = content.strip()
+
+        # 尝试解析JSON
+        try:
+            # 清理可能的markdown代码块标记
+            content = re.sub(r'^```json\s*', '', content)
+            content = re.sub(r'^```\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
+
+            # 尝试从内容中提取JSON对象
+            json_match = re.search(r'\{[^{}]*\}', content)
+            if json_match:
+                content = json_match.group(0)
+
+            prompt_data = json.loads(content)
+
+            # 确保必要字段存在
+            return jsonify({
+                "success": True,
+                "prompt": {
+                    "theme": prompt_data.get("theme", user_description),
+                    "mood": prompt_data.get("mood", "欢快"),
+                    "genre": prompt_data.get("genre", "流行"),
+                    "description": prompt_data.get("description", "")
+                },
+                "message": "提示词已生成"
+            })
+        except json.JSONDecodeError:
+                # 如果JSON解析失败，返回原始内容让用户编辑
+                return jsonify({
+                    "success": True,
+                    "prompt": {
+                        "theme": user_description,
+                        "mood": "欢快",
+                        "genre": "流行",
+                        "description": content
+                    },
+                    "message": "提示词已生成（请手动调整）"
+                })
+
+        return jsonify({"success": False, "error": "AI未返回内容"}), 500
+
+    except requests.exceptions.Timeout:
+        return jsonify({"success": False, "error": "请求超时，请重试"}), 500
+    except Exception as e:
+        print(f"[提示词生成] Error: {e}")
+        return jsonify({"success": False, "error": f"生成失败: {str(e)}"}), 500
+
+
 @music_bp.route("/lyrics", methods=["POST"])
 def generate_or_improve_lyrics():
     data = request.get_json()
-    theme = data.get("theme")
-    mood = data.get("mood")
-    genre = data.get("genre")
-    current_lyrics = data.get("currentLyrics", "")
-    conversation = data.get("conversation", [])
-    user_request = data.get("userRequest", "")
+    prompt = data.get("prompt", "")
 
-    if not theme or not mood or not genre:
-        return jsonify(
-            {"success": False, "error": "缺少必要参数：theme, mood, genre"}
-        ), 400
+    if not prompt:
+        return jsonify({"success": False, "error": "请先输入创作提示词"}), 400
 
     try:
-        lyrics = generate_lyrics_with_llm(
-            theme, mood, genre, current_lyrics, conversation, user_request
-        )
-        return jsonify(
-            {
-                "success": True,
-                "lyrics": lyrics,
-                "message": "歌词已改进" if current_lyrics else "歌词已生成",
-            }
-        )
+        lyrics = generate_lyrics_with_llm(prompt)
+        return jsonify({
+            "success": True,
+            "lyrics": lyrics,
+            "message": "歌词已生成",
+        })
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 500
     except Exception as e:
@@ -100,57 +352,128 @@ def generate_music():
     data = request.get_json()
     lyrics = data.get("lyrics")
     style = data.get("style", "")
+    title = data.get("title", "AI创作歌曲")
 
     if not lyrics:
         return jsonify({"success": False, "error": "缺少歌词内容"}), 400
 
+    # 检查 mmx CLI 是否可用
+    if not MMX_AVAILABLE:
+        return jsonify({
+            "success": False,
+            "error": "mmx CLI 未安装或不在 PATH 中，请先安装 MiniMax mmx CLI"
+        }), 500
+
     job_id = str(uuid.uuid4())
     uploads_dir = ensure_uploads_dir()
-    output_file = os.path.join(uploads_dir, f"{job_id}.mp3")
 
-    jobs[job_id] = {"status": "pending", "progress": 0, "outputFile": output_file}
+    # 使用歌名作为文件名
+    safe_title = sanitize_filename(title)
+    output_file = os.path.join(uploads_dir, f"{safe_title}_{job_id[:8]}.mp3")
+
+    # 初始化任务状态
+    jobs[job_id] = {
+        "status": "pending",
+        "progress": 0,
+        "outputFile": output_file,
+        "title": safe_title,
+        "user_description": data.get("userDescription", ""),
+        "prompt": data.get("prompt", ""),
+        "lyrics": lyrics,
+        "created_at": time.time(),
+        "error": None
+    }
 
     generation_prompt = style or "pop music, upbeat, catchy melody"
-    escaped_lyrics = lyrics.replace('"', '\\"').replace("\n", "\\n")
-    escaped_prompt = generation_prompt.replace('"', '\\"')
 
-    command = f'mmx music generate --lyrics "{escaped_lyrics}" --prompt "{escaped_prompt}" --out "{output_file}" --quiet --non-interactive'
+    # 转义参数以防止命令注入
+    def escape_shell_arg(s):
+        return s.replace('\\', '\\\\').replace('"', '\\"').replace("'", "'").replace("\n", "\\n").replace("$", "\\$").replace("`", "\\`")
 
-    jobs[job_id] = {"status": "generating", "progress": 5}
+    escaped_lyrics = escape_shell_arg(lyrics)
+    escaped_prompt = escape_shell_arg(generation_prompt)
+    escaped_output = escape_shell_arg(output_file)
 
-    try:
-        subprocess.Popen(
-            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-    except Exception as e:
-        print(f"Generation error: {e}")
-        jobs[job_id] = {"status": "failed", "error": str(e)}
-        return jsonify({"success": False, "error": str(e)}), 500
+    command = f'mmx music generate --lyrics "{escaped_lyrics}" --prompt "{escaped_prompt}" --out "{escaped_output}" --quiet --non-interactive'
 
-    import threading
-    import time
+    jobs[job_id]["status"] = "generating"
+    jobs[job_id]["progress"] = 5
 
-    def update_progress():
+    # 启动后台进程
+    def run_generation():
+        try:
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            # 等待进程完成（带超时）
+            stdout, stderr = proc.communicate(timeout=300)  # 5分钟超时
+
+            if proc.returncode != 0:
+                jobs[job_id]["status"] = "failed"
+                jobs[job_id]["error"] = stderr or "音乐生成失败"
+                return
+
+            # 检查输出文件是否存在
+            if os.path.exists(output_file):
+                jobs[job_id]["status"] = "completed"
+                jobs[job_id]["progress"] = 100
+
+                # 保存到数据库历史记录
+                try:
+                    save_music_to_db(
+                        job_id,
+                        safe_title,
+                        jobs[job_id].get("user_description", ""),
+                        jobs[job_id].get("prompt", ""),
+                        lyrics,
+                        os.path.basename(output_file)
+                    )
+                except Exception as e:
+                    print(f"[警告] 保存音乐历史失败: {e}")
+            else:
+                jobs[job_id]["status"] = "failed"
+                jobs[job_id]["error"] = "生成完成但未找到输出文件"
+
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = "音乐生成超时（5分钟）"
+        except Exception as e:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = str(e)
+
+    # 在后台线程中运行生成
+    threading.Thread(target=run_generation, daemon=True).start()
+
+    # 模拟进度更新（因为 mmx 没有进度回调）
+    def simulate_progress():
         while True:
             job = jobs.get(job_id)
-            if not job or job["status"] != "generating" or job["progress"] >= 90:
+            if not job or job["status"] != "generating":
                 break
-            job["progress"] = min(90, job["progress"] + 10)
-            time.sleep(3)
-        if job and job["status"] == "generating":
-            job["status"] = "completed"
-            job["progress"] = 100
+            # 模拟进度增长，最大到 95%（等待真实完成）
+            if job["progress"] < 95:
+                job["progress"] = min(95, job["progress"] + 5)
+            time.sleep(5)
 
-    threading.Thread(target=update_progress, daemon=True).start()
+    threading.Thread(target=simulate_progress, daemon=True).start()
 
     return jsonify({"success": True, "jobId": job_id, "message": "音乐生成任务已启动"})
 
 
 @music_bp.route("/status/<job_id>", methods=["GET"])
 def get_status(job_id):
+    # 定期清理过期任务
+    cleanup_expired_jobs()
+
     job = jobs.get(job_id)
     if not job:
-        return jsonify({"success": False, "error": "任务不存在"}), 404
+        return jsonify({"success": False, "error": "任务不存在或已过期"}), 404
 
     return jsonify(
         {
@@ -161,8 +484,95 @@ def get_status(job_id):
             "outputFile": os.path.basename(job.get("outputFile", ""))
             if job.get("outputFile")
             else None,
+            "title": job.get("title", ""),
         }
     )
+
+
+@music_bp.route("/history", methods=["GET"])
+def get_music_history():
+    """获取已完成的音乐历史记录"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, title, user_description, prompt, lyrics, audio_file, created_at
+            FROM music_history
+            ORDER BY created_at DESC
+            LIMIT 50
+        """)
+        rows = cursor.fetchall()
+
+        history = []
+        for row in rows:
+            history.append({
+                "id": row[0],
+                "title": row[1],
+                "userDescription": row[2],
+                "prompt": row[3],
+                "lyrics": row[4],
+                "audioUrl": f"/api/music/download/{row[5]}",
+                "createdAt": row[6]
+            })
+
+        return jsonify({"success": True, "history": history})
+
+
+@music_bp.route("/history/<music_id>", methods=["DELETE"])
+def delete_music_history(music_id):
+    """删除音乐历史记录"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        # 先获取音频文件路径，以便删除文件
+        cursor.execute("SELECT audio_file FROM music_history WHERE id = ?", (music_id,))
+        row = cursor.fetchone()
+
+        if row:
+            audio_file = row[0]
+            uploads_dir = ensure_uploads_dir()
+            file_path = os.path.join(uploads_dir, audio_file)
+
+            # 删除文件
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+
+            # 删除数据库记录
+            cursor.execute("DELETE FROM music_history WHERE id = ?", (music_id,))
+            conn.commit()
+
+            return jsonify({"success": True, "message": "已删除"})
+
+        return jsonify({"success": False, "error": "记录不存在"}), 404
+
+
+@music_bp.route("/mmx-check", methods=["GET"])
+def check_mmx():
+    """检查 mmx CLI 状态"""
+    global MMX_AVAILABLE
+    MMX_AVAILABLE = bool(shutil.which("mmx"))
+
+    if MMX_AVAILABLE:
+        # 尝试获取版本信息
+        try:
+            result = subprocess.run(["mmx", "--version"], capture_output=True, text=True, timeout=5)
+            version = result.stdout.strip() or result.stderr.strip() or "unknown"
+        except:
+            version = "installed"
+
+        return jsonify({
+            "success": True,
+            "available": True,
+            "version": version
+        })
+    else:
+        return jsonify({
+            "success": True,
+            "available": False,
+            "error": "mmx CLI 未安装，请访问 MiniMax 官网安装"
+        })
 
 
 @music_bp.route("/download/<filename>", methods=["GET"])
@@ -174,22 +584,98 @@ def download(filename):
     return send_file(file_path, mimetype="audio/mpeg")
 
 
-@music_bp.route("/chat", methods=["POST"])
-def chat():
+@music_bp.route("/lyrics/modify", methods=["POST"])
+def modify_lyrics():
+    """局部修改歌词 - 使用 MiniMax Chat API"""
     data = request.get_json()
-    theme = data.get("theme")
-    mood = data.get("mood")
-    genre = data.get("genre")
-    message = data.get("message")
-    current_lyrics = data.get("currentLyrics", "")
-    conversation = data.get("conversation", [])
+    full_lyrics = data.get("fullLyrics", "")
+    selected_text = data.get("selectedText", "")
+    suggestion = data.get("suggestion", "")
 
-    if not message:
-        return jsonify({"success": False, "error": "消息内容不能为空"}), 400
+    if not selected_text:
+        return jsonify({"success": False, "error": "请先选择要修改的歌词部分"}), 400
 
-    conversation = list(conversation) if conversation else []
-    conversation.append({"role": "user", "content": message})
+    if not suggestion:
+        return jsonify({"success": False, "error": "请输入修改建议"}), 400
 
-    lyrics = generate_lyrics_with_llm(theme, mood, genre, current_lyrics, conversation)
+    if not MINIMAX_API_KEY:
+        return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
 
-    return jsonify({"success": True, "lyrics": lyrics, "message": "歌词已更新"})
+    # 构建 Prompt - 不依赖mood/genre，让AI自动判断风格
+    prompt = f"""你是一位专业的歌词修改助手。用户希望修改歌曲中的部分歌词。
+
+当前歌曲完整歌词：
+{full_lyrics}
+
+用户选中要修改的部分：
+"{selected_text}"
+
+用户修改意见：
+"{suggestion}"
+
+请根据用户的修改意见和原歌曲风格，修改选中的这部分歌词。要求：
+1. 只返回修改后的新内容（替换选中部分的内容）
+2. 保持与原歌曲整体风格一致
+3. 如果选中的是一行或多行，返回相同行数的内容
+4. 不要添加任何解释或前缀，直接返回修改后的歌词内容
+
+修改后的内容："""
+
+    try:
+        response = requests.post(
+            MINIMAX_CHAT_URL,
+            json={
+                "model": "MiniMax-M2.7",  # 使用支持的模型
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 200
+            },
+            headers={
+                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=30,
+        )
+
+        result = response.json()
+        print(f"[局部修改] API Response: {json.dumps(result, ensure_ascii=False)[:300]}")
+
+        if result.get("base_resp", {}).get("status_code") != 0:
+            error_msg = result.get("base_resp", {}).get("status_msg", "API调用失败")
+            # 如果模型不支持，尝试使用默认模型
+            if "not support model" in error_msg.lower():
+                # 尝试另一种方式：直接返回建议让用户手动修改
+                return jsonify({
+                    "success": False,
+                    "error": "当前API不支持此模型，请手动修改歌词",
+                    "suggestion": suggestion
+                }), 500
+            return jsonify({"success": False, "error": error_msg}), 500
+
+        # 提取修改后的内容
+        choices = result.get("choices", [])
+        if choices:
+            new_content = choices[0].get("message", {}).get("content", "").strip()
+            # 清理可能的格式标记
+            new_content = re.sub(r'^修改后的内容[：:]\s*', '', new_content)
+            new_content = re.sub(r'^["\']|["\']$', '', new_content)
+
+            if new_content:
+                # 拼接完整歌词：替换选中部分
+                new_lyrics = full_lyrics.replace(selected_text, new_content)
+                return jsonify({
+                    "success": True,
+                    "modifiedText": new_content,
+                    "fullLyrics": new_lyrics,
+                    "message": "歌词已修改"
+                })
+
+        return jsonify({"success": False, "error": "AI未返回修改内容"}), 500
+
+    except requests.exceptions.Timeout:
+        return jsonify({"success": False, "error": "请求超时，请重试"}), 500
+    except Exception as e:
+        print(f"[局部修改] Error: {e}")
+        return jsonify({"success": False, "error": f"修改失败: {str(e)}"}), 500

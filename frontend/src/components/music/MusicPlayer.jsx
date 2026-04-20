@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
-import { Play, Pause, Download, RefreshCw, CheckCircle, XCircle, ListMusic, Edit3 } from 'lucide-react';
+import { Play, Pause, Download, RefreshCw, CheckCircle, XCircle, ListMusic } from 'lucide-react';
 import { LyricsSyncViewer } from './LyricsSyncViewer';
 
 export function MusicPlayer({
@@ -11,8 +11,6 @@ export function MusicPlayer({
   progress,
   onGenerate,
   onDownload,
-  onRegenerate,
-  isApproved
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -168,6 +166,7 @@ export function MusicPlayer({
           <LyricsSyncViewer
             lyrics={lyrics}
             currentTime={currentTime}
+            duration={duration}
             isPlaying={isPlaying}
             onSeek={handleSeek}
             className="max-h-[400px]"
@@ -239,8 +238,7 @@ export function MusicPlayer({
             <Button
               variant="outline"
               size="sm"
-              onClick={onRegenerate}
-              disabled={!isApproved}
+              onClick={onGenerate}
             >
               <RefreshCw className="h-4 w-4" />
               重新生成
@@ -252,15 +250,8 @@ export function MusicPlayer({
       {!audioUrl && status !== 'generating' && (
         <div className="text-center py-8">
           <p className="text-[var(--text-secondary)] text-sm mb-4">
-            {isApproved ? '点击下方按钮生成音乐' : '请先确认歌词后再生成音乐'}
+            等待音乐生成完成...
           </p>
-          <Button
-            onClick={onGenerate}
-            disabled={!isApproved}
-            loading={status === 'generating'}
-          >
-            生成音乐
-          </Button>
         </div>
       )}
     </div>

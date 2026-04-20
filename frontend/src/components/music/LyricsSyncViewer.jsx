@@ -2,22 +2,22 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '../../lib/utils';
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 
-// 歌词段落时长配置（秒）
-const SECTION_DURATIONS = {
-  verse: 4,
-  chorus: 5,
-  bridge: 3.5,
-  prechorus: 3.5,
-  intro: 2,
-  outro: 2,
-  solo: 4,
-  instrumental: 3,
-  default: 4
+// 段落速度权重（相对于基准速度）
+const SECTION_SPEED_WEIGHT = {
+  verse: 1.0,      // 主歌 - 正常速度
+  chorus: 0.85,    // 副歌 - 通常更快
+  bridge: 1.1,     // 桥段 - 通常较慢
+  prechorus: 0.95, // 预副歌
+  intro: 1.2,      // 前奏 - 较慢
+  outro: 1.2,      // 尾声
+  solo: 1.0,       // 间奏
+  instrumental: 1.0,
+  default: 1.0
 };
 
 // 识别段落标记
 const SECTION_PATTERNS = [
-  { pattern: /\[(verse|主歌|pre-chorus|前奏)\]/gi, type: 'verse' },
+  { pattern: /\[(verse|主歌|pre-chorus)\]/gi, type: 'verse' },
   { pattern: /\[(chorus|副歌|高潮)\]/gi, type: 'chorus' },
   { pattern: /\[(bridge|桥段|过渡)\]/gi, type: 'bridge' },
   { pattern: /\[(pre[- ]?chorus|预副歌)\]/gi, type: 'prechorus' },
@@ -34,37 +34,62 @@ const getSectionType = (line) => {
   return null;
 };
 
-// 解析歌词为带时间戳的格式
-const parseLyricsToTimedLines = (lyricsText) => {
+// 根据字数估算行时长（基础时长：每个字约0.5秒）
+const estimateLineDuration = (text, sectionType) => {
+  const charCount = text.length;
+  const baseDurationPerChar = 0.5; // 每字0.5秒作为基准
+  const weight = SECTION_SPEED_WEIGHT[sectionType] || SECTION_SPEED_WEIGHT.default;
+
+  // 最短2秒，最长根据字数计算
+  const estimatedDuration = Math.max(2, Math.min(8, charCount * baseDurationPerChar * weight));
+  return estimatedDuration;
+};
+
+// 解析歌词为带时间戳的格式，根据总时长动态调整
+const parseLyricsToTimedLines = (lyricsText, totalDuration = 0) => {
   if (!lyricsText) return [];
 
   const lines = lyricsText.split('\n');
   const timedLines = [];
-  let currentTime = 0;
   let currentSection = 'verse';
 
+  // 先收集所有有效歌词行和它们的预估时长
+  const rawLines = [];
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
 
-    // 检查是否是段落标记行
     const sectionType = getSectionType(line);
     if (sectionType) {
       currentSection = sectionType;
-      // 段落标记行本身不显示为歌词
       continue;
     }
 
-    const duration = SECTION_DURATIONS[currentSection] || SECTION_DURATIONS.default;
+    rawLines.push({
+      text: line,
+      section: currentSection,
+      estimatedDuration: estimateLineDuration(line, currentSection)
+    });
+  }
+
+  if (rawLines.length === 0) return [];
+
+  // 如果有实际总时长，按比例调整每行时长
+  const totalEstimatedDuration = rawLines.reduce((sum, l) => sum + l.estimatedDuration, 0);
+  const scaleFactor = totalDuration > 0 ? totalDuration / totalEstimatedDuration : 1;
+
+  let currentTime = 0;
+  for (const rawLine of rawLines) {
+    const adjustedDuration = rawLine.estimatedDuration * scaleFactor;
 
     timedLines.push({
       time: currentTime,
-      duration,
-      text: line,
-      section: currentSection
+      duration: adjustedDuration,
+      text: rawLine.text,
+      section: rawLine.section
     });
 
-    currentTime += duration;
+    currentTime += adjustedDuration;
   }
 
   return timedLines;
@@ -80,6 +105,7 @@ const formatTime = (seconds) => {
 export function LyricsSyncViewer({
   lyrics,
   currentTime = 0,
+  duration = 0,  // 接收实际音频时长
   isPlaying = false,
   onSeek,
   className
@@ -88,8 +114,8 @@ export function LyricsSyncViewer({
   const lineRefs = useRef([]);
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
 
-  // 解析歌词
-  const timedLines = useMemo(() => parseLyricsToTimedLines(lyrics), [lyrics]);
+  // 解析歌词，传入实际时长进行动态调整
+  const timedLines = useMemo(() => parseLyricsToTimedLines(lyrics, duration), [lyrics, duration]);
 
   // 计算当前行
   useEffect(() => {
@@ -100,10 +126,13 @@ export function LyricsSyncViewer({
 
     let activeIndex = -1;
     for (let i = 0; i < timedLines.length; i++) {
+      const lineEndTime = timedLines[i].time + timedLines[i].duration;
+      if (currentTime >= timedLines[i].time && currentTime < lineEndTime) {
+        activeIndex = i;
+        break;
+      }
       if (currentTime >= timedLines[i].time) {
         activeIndex = i;
-      } else {
-        break;
       }
     }
     setActiveLineIndex(activeIndex);
@@ -120,7 +149,6 @@ export function LyricsSyncViewer({
       const containerHeight = containerEl.clientHeight;
       const scrollTop = containerEl.scrollTop;
 
-      // 如果当前行不在可见区域内，则滚动
       if (lineTop < scrollTop + lineHeight * 2 || lineTop > scrollTop + containerHeight - lineHeight * 2) {
         containerEl.scrollTo({
           top: lineTop - containerHeight / 2 + lineHeight / 2,
@@ -137,10 +165,9 @@ export function LyricsSyncViewer({
     }
   }, [onSeek, timedLines]);
 
-  // 总时长
-  const totalDuration = timedLines.length > 0
-    ? timedLines[timedLines.length - 1].time + timedLines[timedLines.length - 1].duration
-    : 0;
+  // 计算总时长（使用实际时长或估算）
+  const totalDuration = duration > 0 ? duration :
+    (timedLines.length > 0 ? timedLines[timedLines.length - 1].time + timedLines[timedLines.length - 1].duration : 0);
 
   if (!lyrics) {
     return (
@@ -220,20 +247,13 @@ export function LyricsSyncViewer({
                   >
                     {line.text}
                   </p>
-
-                  {/* 段落标记 */}
-                  {line.section && index === 0 && (
-                    <span className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider mt-1 block">
-                      {line.section}
-                    </span>
-                  )}
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* 底部留白，便于滚动到最后一首 */}
+        {/* 底部留白 */}
         <div className="h-32" />
       </div>
 

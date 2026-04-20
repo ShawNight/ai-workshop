@@ -5,6 +5,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 导入数据库模块（会自动初始化数据库）
+import database
+
 from routes.music import music_bp
 from routes.novel import novel_bp
 from routes.workflow import workflow_bp
