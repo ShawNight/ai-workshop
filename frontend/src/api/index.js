@@ -38,7 +38,8 @@ export const workflowApi = {
   getWorkflow: (id) => api.get(`/workflows/${id}`),
   updateWorkflow: (id, data) => api.put(`/workflows/${id}`, data),
   deleteWorkflow: (id) => api.delete(`/workflows/${id}`),
-  executeWorkflow: (id) => api.post(`/workflows/${id}/execute`)
+  executeWorkflow: (id, data) => api.post(`/workflows/${id}/execute`, data),
+  getExecutionStatus: (executionId) => api.get(`/workflows/execution/${executionId}`)
 };
 
 export default api;

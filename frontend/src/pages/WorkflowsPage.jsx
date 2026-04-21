@@ -1,95 +1,289 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input, Label } from '../components/ui/Input';
+import { Input, Label, Textarea } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { workflowApi } from '../api';
 import { toast } from '../components/ui/Toast';
-import { useWorkflowStore } from '../store/workflowStore';
-import { 
-  DndContext, 
-  DragOverlay, 
-  useSensor, 
-  useSensors, 
+import {
+  useWorkflowStore,
+  nodeTypes,
+  createNodeData
+} from '../store/workflowStore';
+import {
+  DndContext,
+  DragOverlay,
+  useSensor,
+  useSensors,
   PointerSensor,
   useDroppable,
   useDraggable
 } from '@dnd-kit/core';
-import { Workflow, Plus, Trash2, Play, Save, GripVertical, ArrowRight } from 'lucide-react';
+import {
+  Workflow,
+  Plus,
+  Trash2,
+  Play,
+  Save,
+  X,
+  Loader2,
+  CheckCircle,
+  AlertCircle
+} from 'lucide-react';
 
-const nodeTypes = [
-  { id: 'input', name: '输入', icon: '📥', color: 'bg-blue-500', description: '用户输入节点' },
-  { id: 'llm', name: 'LLM', icon: '🤖', color: 'bg-purple-500', description: '语言模型处理' },
-  { id: 'music', name: '音乐', icon: '🎵', color: 'bg-pink-500', description: '音乐生成节点' },
-  { id: 'output', name: '输出', icon: '📤', color: 'bg-green-500', description: '结果输出节点' }
-];
-
-function DraggableNode({ node }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: node.id,
-    data: { type: 'new', node }
+// 可拖拽的节点模板（从节点库拖出）
+function DraggableNodeTemplate({ nodeType }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `template-${nodeType.id}`,
+    data: { type: 'template', nodeType }
   });
 
-  const style = transform ? {
-    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-  } : undefined;
-
   return (
     <div
       ref={setNodeRef}
-      style={style}
       {...listeners}
       {...attributes}
-      className={`p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)] cursor-grab active:cursor-grabbing ${isDragging ? 'opacity-50' : ''}`}
+      className={`p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)] cursor-grab active:cursor-grabbing hover:border-[var(--primary)] transition-colors ${isDragging ? 'opacity-50' : ''}`}
     >
       <div className="flex items-center gap-2">
-        <span className="text-lg">{node.icon}</span>
-        <span className="text-sm font-medium">{node.name}</span>
-      </div>
-    </div>
-  );
-}
-
-function WorkflowNode({ node, isSelected, onClick }) {
-  const nodeType = nodeTypes.find(t => t.id === node.type);
-
-  return (
-    <div
-      className={`p-4 rounded-lg border-2 min-w-[180px] ${isSelected ? 'border-[var(--primary)] shadow-lg' : 'border-[var(--border)]'} bg-[var(--surface)]`}
-      onClick={() => onClick(node)}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`w-8 h-8 rounded ${nodeType?.color} flex items-center justify-center text-white text-sm`}>
-          {nodeType?.icon}
+        <div className={`w-8 h-8 rounded ${nodeType.color} flex items-center justify-center text-white`}>
+          {nodeType.icon}
         </div>
         <div>
-          <p className="font-medium text-sm">{nodeType?.name}</p>
-          <p className="text-xs text-[var(--text-secondary)]">{node.label || '未命名'}</p>
+          <p className="font-medium text-sm">{nodeType.name}</p>
+          <p className="text-xs text-[var(--text-secondary)]">{nodeType.description}</p>
         </div>
-      </div>
-      <div className="text-xs text-[var(--text-secondary)]">
-        {nodeType?.description}
       </div>
     </div>
   );
 }
 
-function Canvas({ nodes, edges, selectedNode, onNodeSelect, onDrop, onDragOver }) {
-  const { setNodeRef, isOver } = useDroppable({ id: 'canvas' });
+// 画布上的工作流节点
+function WorkflowCanvasNode({ node, isSelected, onSelect, onMove, onPortDragStart, onPortDragEnd }) {
+  const nodeRef = useRef(null);
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+  const nodeType = nodeTypes.find(t => t.id === node.type);
+
+  // 节点拖拽移动
+  const handleMouseDown = (e) => {
+    // 如果点击的是端口，不触发节点拖拽
+    if (e.target.closest('.node-port')) return;
+
+    e.preventDefault();
+    setIsDraggingNode(true);
+    const rect = nodeRef.current.getBoundingClientRect();
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+  };
+
+  useEffect(() => {
+    if (!isDraggingNode) return;
+
+    const handleMouseMove = (e) => {
+      const canvas = nodeRef.current?.closest('.workflow-canvas');
+      if (!canvas) return;
+
+      const canvasRect = canvas.getBoundingClientRect();
+      const newX = e.clientX - canvasRect.left - dragOffset.x;
+      const newY = e.clientY - canvasRect.top - dragOffset.y;
+
+      // 限制在画布范围内
+      const clampedX = Math.max(0, Math.min(newX, canvasRect.width - 180));
+      const clampedY = Math.max(0, Math.min(newY, canvasRect.height - 100));
+
+      onMove(node.id, { x: clampedX, y: clampedY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingNode(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingNode, dragOffset, node.id, onMove]);
 
   return (
     <div
-      ref={setNodeRef}
-      className={`flex-1 min-h-[500px] bg-[var(--background)] rounded-lg border border-[var(--border)] relative overflow-hidden ${isOver ? 'ring-2 ring-[var(--primary)]' : ''}`}
-      onDrop={onDrop}
-      onDragOver={onDragOver}
+      ref={nodeRef}
+      className={`absolute select-none ${isDraggingNode ? 'cursor-grabbing' : 'cursor-grab'}`}
+      style={{ left: node.position.x, top: node.position.y }}
+      onMouseDown={handleMouseDown}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(node);
+      }}
     >
+      <div className={`p-4 rounded-lg border-2 min-w-[180px] max-w-[200px] transition-shadow ${isSelected ? 'border-[var(--primary)] shadow-lg ring-2 ring-[var(--primary)]/20' : 'border-[var(--border)] hover:border-[var(--primary)]/50'} bg-[var(--surface)]`}>
+        {/* 节点头部 */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className={`w-8 h-8 rounded ${nodeType?.color} flex items-center justify-center text-white text-sm`}>
+            {nodeType?.icon}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-sm truncate">{node.label}</p>
+            <p className="text-xs text-[var(--text-secondary)] truncate">{nodeType?.name}</p>
+          </div>
+        </div>
+
+        {/* 端口区域 */}
+        <div className="relative">
+          {/* 输入端口（左侧） */}
+          {node.inputs?.map((port, idx) => (
+            <div
+              key={port.id}
+              className="node-port absolute -left-3 flex items-center"
+              style={{ top: `${idx * 24 + 8}px` }}
+              onMouseUp={(e) => {
+                e.stopPropagation();
+                onPortDragEnd(node.id, port.id, 'input');
+              }}
+            >
+              <div className="w-6 h-6 rounded-full bg-[var(--border)] border-2 border-[var(--text-secondary)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors flex items-center justify-center cursor-pointer" title={port.label}>
+                <div className="w-2 h-2 rounded-full bg-[var(--text-secondary)]" />
+              </div>
+            </div>
+          ))}
+
+          {/* 输出端口（右侧） */}
+          {node.outputs?.map((port, idx) => (
+            <div
+              key={port.id}
+              className="node-port absolute -right-3 flex items-center justify-end"
+              style={{ top: `${idx * 24 + 8}px` }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onPortDragStart(node.id, port.id, 'output');
+              }}
+            >
+              <div className="w-6 h-6 rounded-full bg-[var(--border)] border-2 border-[var(--text-secondary)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors flex items-center justify-center cursor-grab" title={port.label}>
+                <div className="w-2 h-2 rounded-full bg-[var(--text-secondary)]" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 连线组件
+function ConnectionLine({ edge, nodes, isSelected, onSelect, onDelete }) {
+  const sourceNode = nodes.find(n => n.id === edge.source);
+  const targetNode = nodes.find(n => n.id === edge.target);
+
+  if (!sourceNode || !targetNode) return null;
+
+  // 计算连线的起点和终点
+  const sourceX = sourceNode.position.x + 180 + 3; // 节点宽度 + 端口偏移
+  const sourceY = sourceNode.position.y + 50; // 端口高度偏移
+  const targetX = targetNode.position.x - 3;
+  const targetY = targetNode.position.y + 50;
+
+  // 贝塞尔曲线控制点
+  const controlOffset = Math.min(80, Math.abs(targetX - sourceX) / 2);
+  const path = `M ${sourceX} ${sourceY} C ${sourceX + controlOffset} ${sourceY}, ${targetX - controlOffset} ${targetY}, ${targetX} ${targetY}`;
+
+  return (
+    <g
+      className={`cursor-pointer ${isSelected ? 'stroke-[var(--primary)]' : 'stroke-[var(--text-secondary)]'}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(edge);
+      }}
+    >
+      {/* 背景粗线用于更好的点击检测 */}
+      <path
+        d={path}
+        strokeWidth={10}
+        fill="none"
+        stroke="transparent"
+      />
+      {/* 实际显示的连线 */}
+      <path
+        d={path}
+        strokeWidth={2}
+        fill="none"
+        className={`${isSelected ? 'stroke-[var(--primary)]' : 'stroke-[var(--text-secondary)] opacity-50'} hover:stroke-[var(--primary)] hover:opacity-100 transition-all`}
+      />
+      {/* 箭头 */}
+      <circle cx={targetX} cy={targetY} r={4} fill={isSelected ? 'var(--primary)' : 'var(--text-secondary)'} className="opacity-50" />
+    </g>
+  );
+}
+
+// 正在拖拽的临时连线
+function DraggingConnection({ fromNode, toPosition }) {
+  if (!fromNode) return null;
+
+  const sourceX = fromNode.position.x + 180 + 3;
+  const sourceY = fromNode.position.y + 50;
+  const targetX = toPosition.x;
+  const targetY = toPosition.y;
+
+  const controlOffset = Math.min(80, Math.abs(targetX - sourceX) / 2);
+  const path = `M ${sourceX} ${sourceY} C ${sourceX + controlOffset} ${sourceY}, ${targetX - controlOffset} ${targetY}, ${targetX} ${targetY}`;
+
+  return (
+    <path
+      d={path}
+      strokeWidth={2}
+      fill="none"
+      stroke="var(--primary)"
+      className="opacity-70"
+      strokeDasharray="5,5"
+    />
+  );
+}
+
+// 画布组件
+function WorkflowCanvas({
+  nodes,
+  edges,
+  selectedNode,
+  selectedEdge,
+  connectingFrom,
+  dragPosition,
+  onNodeSelect,
+  onNodeMove,
+  onEdgeSelect,
+  onEdgeDelete,
+  onPortDragStart,
+  onPortDragEnd,
+  onCanvasDrop
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'canvas' });
+  const canvasRef = useRef(null);
+
+  return (
+    <div
+      ref={(el) => {
+        setNodeRef(el);
+        canvasRef.current = el;
+      }}
+      className={`workflow-canvas flex-1 min-h-[500px] bg-[var(--background)] rounded-lg border border-[var(--border)] relative overflow-hidden ${isOver ? 'ring-2 ring-[var(--primary)]' : ''}`}
+      onClick={() => {
+        onNodeSelect(null);
+        onEdgeSelect(null);
+      }}
+    >
+      {/* 网格背景 */}
       <div className="absolute inset-0 opacity-20" style={{
         backgroundImage: 'radial-gradient(circle, var(--border) 1px, transparent 1px)',
         backgroundSize: '20px 20px'
       }} />
 
+      {/* 空状态提示 */}
       {nodes.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-center text-[var(--text-secondary)]">
             <Workflow className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>从左侧拖拽节点到此处</p>
@@ -97,65 +291,274 @@ function Canvas({ nodes, edges, selectedNode, onNodeSelect, onDrop, onDragOver }
         </div>
       )}
 
-      <svg className="absolute inset-0 pointer-events-none w-full h-full">
-        {edges.map((edge) => {
-          const sourceNode = nodes.find(n => n.id === edge.source);
-          const targetNode = nodes.find(n => n.id === edge.target);
-          if (!sourceNode || !targetNode) return null;
-
-          return (
-            <path
-              key={edge.id}
-              d={`M ${sourceNode.position.x + 90} ${sourceNode.position.y + 50} 
-                  C ${sourceNode.position.x + 150} ${sourceNode.position.y + 50},
-                    ${targetNode.position.x - 60} ${targetNode.position.y + 50},
-                    ${targetNode.position.x} ${targetNode.position.y + 50}`}
-              stroke="var(--primary)"
-              strokeWidth="2"
-              fill="none"
-              className="opacity-50"
-            />
-          );
-        })}
+      {/* SVG 连线层 */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-auto" style={{ zIndex: 1 }}>
+        {/* 已有连线 */}
+        {edges.map((edge) => (
+          <ConnectionLine
+            key={edge.id}
+            edge={edge}
+            nodes={nodes}
+            isSelected={selectedEdge?.id === edge.id}
+            onSelect={onEdgeSelect}
+            onDelete={onEdgeDelete}
+          />
+        ))}
+        {/* 正在拖拽的临时连线 */}
+        {connectingFrom && dragPosition && (
+          <DraggingConnection
+            fromNode={nodes.find(n => n.id === connectingFrom.nodeId)}
+            toPosition={dragPosition}
+          />
+        )}
       </svg>
 
-      <div className="absolute inset-0 p-4">
+      {/* 节点层 */}
+      <div className="absolute inset-0" style={{ zIndex: 2 }}>
         {nodes.map((node) => (
-          <div
+          <WorkflowCanvasNode
             key={node.id}
-            className="absolute"
-            style={{ 
-              left: node.position.x, 
-              top: node.position.y 
-            }}
-          >
-            <WorkflowNode
-              node={node}
-              isSelected={selectedNode?.id === node.id}
-              onClick={onNodeSelect}
-            />
-          </div>
+            node={node}
+            isSelected={selectedNode?.id === node.id}
+            onSelect={onNodeSelect}
+            onMove={onNodeMove}
+            onPortDragStart={onPortDragStart}
+            onPortDragEnd={onPortDragEnd}
+          />
         ))}
       </div>
     </div>
   );
 }
 
+// 节点配置面板
+function NodeConfigPanel({ node, onUpdateConfig, onDelete }) {
+  const nodeType = nodeTypes.find(t => t.id === node.type);
+
+  if (!node) return null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2">
+          <div className={`w-6 h-6 rounded ${nodeType?.color} flex items-center justify-center text-white text-xs`}>
+            {nodeType?.icon}
+          </div>
+          {node.label} 配置
+        </CardTitle>
+        <Button size="sm" variant="ghost" onClick={() => onDelete(node.id)}>
+          <Trash2 className="h-4 w-4 text-red-500" />
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* 通用：节点名称 */}
+        <div>
+          <Label>节点名称</Label>
+          <Input
+            value={node.label || ''}
+            onChange={(e) => onUpdateConfig(node.id, { label: e.target.value })}
+            placeholder="输入节点名称..."
+            className="mt-1"
+          />
+        </div>
+
+        {/* 类型特定配置 */}
+        {node.type === 'input' && (
+          <div>
+            <Label>输入内容</Label>
+            <Textarea
+              value={node.config?.text || ''}
+              onChange={(e) => onUpdateConfig(node.id, { config: { ...node.config, text: e.target.value } })}
+              placeholder="输入初始数据..."
+              className="mt-1 min-h-[100px]"
+            />
+          </div>
+        )}
+
+        {node.type === 'llm' && (
+          <>
+            <div>
+              <Label>Prompt 模板</Label>
+              <Textarea
+                value={node.config?.prompt || ''}
+                onChange={(e) => onUpdateConfig(node.id, { config: { ...node.config, prompt: e.target.value } })}
+                placeholder="输入提示词模板，使用 {{input}} 引用上游数据..."
+                className="mt-1 min-h-[80px]"
+              />
+              <p className="text-xs text-[var(--text-secondary)] mt-1">使用 {'{{input}}'} 表示上游节点的输出</p>
+            </div>
+            <div>
+              <Label>模型选择</Label>
+              <Select
+                value={node.config?.model || 'abab6.5s-chat'}
+                onChange={(e) => onUpdateConfig(node.id, { config: { ...node.config, model: e.target.value } })}
+                className="mt-1"
+              >
+                <option value="abab6.5s-chat">abab6.5s-chat</option>
+                <option value="abab6.5g-chat">abab6.5g-chat</option>
+                <option value="abab5.5-chat">abab5.5-chat</option>
+              </Select>
+            </div>
+          </>
+        )}
+
+        {node.type === 'music' && (
+          <>
+            <div>
+              <Label>歌词（可选，覆盖上游输入）</Label>
+              <Textarea
+                value={node.config?.lyrics || ''}
+                onChange={(e) => onUpdateConfig(node.id, { config: { ...node.config, lyrics: e.target.value } })}
+                placeholder="留空则使用上游节点的输出作为歌词..."
+                className="mt-1 min-h-[80px]"
+              />
+            </div>
+            <div>
+              <Label>音乐风格</Label>
+              <Select
+                value={node.config?.style || '流行'}
+                onChange={(e) => onUpdateConfig(node.id, { config: { ...node.config, style: e.target.value } })}
+                className="mt-1"
+              >
+                <option value="流行">流行</option>
+                <option value="摇滚">摇滚</option>
+                <option value="民谣">民谣</option>
+                <option value="电子">电子</option>
+                <option value="古典">古典</option>
+              </Select>
+            </div>
+          </>
+        )}
+
+        {node.type === 'output' && (
+          <div className="p-4 bg-[var(--background)] rounded-lg border border-[var(--border)]">
+            <p className="text-sm text-[var(--text-secondary)]">
+              此节点将显示工作流的最终输出结果。执行工作流后可在此查看结果。
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// 连线信息面板
+function EdgeInfoPanel({ edge, nodes, onDelete }) {
+  if (!edge) return null;
+
+  const sourceNode = nodes.find(n => n.id === edge.source);
+  const targetNode = nodes.find(n => n.id === edge.target);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>连接详情</CardTitle>
+        <Button size="sm" variant="ghost" onClick={() => onDelete(edge.id)}>
+          <Trash2 className="h-4 w-4 text-red-500" />
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-medium">{sourceNode?.label}</span>
+          <span className="text-[var(--text-secondary)]">→</span>
+          <span className="font-medium">{targetNode?.label}</span>
+        </div>
+        <p className="text-xs text-[var(--text-secondary)] mt-2">点击删除按钮可移除此连接</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// 执行结果面板
+function ExecutionResultPanel({ status, results, finalOutput }) {
+  if (status === 'idle') return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          执行结果
+          {status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-[var(--primary)]" />}
+          {status === 'completed' && <CheckCircle className="h-4 w-4 text-green-500" />}
+          {status === 'error' && <AlertCircle className="h-4 w-4 text-red-500" />}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Object.entries(results).map(([nodeId, result]) => (
+          <div key={nodeId} className="p-3 bg-[var(--background)] rounded-lg border border-[var(--border)]">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="font-medium text-sm">{result.nodeName}</span>
+              {result.status === 'success' && <CheckCircle className="h-3 w-3 text-green-500" />}
+              {result.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+              {result.status === 'error' && <AlertCircle className="h-3 w-3 text-red-500" />}
+            </div>
+            {result.output && (
+              <p className="text-xs text-[var(--text-secondary)] line-clamp-3">{result.output}</p>
+            )}
+            {result.error && (
+              <p className="text-xs text-red-500">{result.error}</p>
+            )}
+          </div>
+        ))}
+
+        {finalOutput && (
+          <div className="p-3 bg-green-500/10 rounded-lg border border-green-500/30">
+            <p className="text-sm font-medium text-green-600 mb-1">最终输出</p>
+            <p className="text-xs text-[var(--text-secondary)]">{finalOutput}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// 主页面组件
 export function WorkflowsPage() {
-  const { workflows, currentWorkflow, setWorkflows, setCurrentWorkflow, addWorkflow, updateWorkflow, removeWorkflow } = useWorkflowStore();
+  const store = useWorkflowStore();
+  const {
+    workflows,
+    currentWorkflow,
+    nodes,
+    edges,
+    selectedNode,
+    selectedEdge,
+    executionStatus,
+    executionResults,
+    finalOutput,
+    setWorkflows,
+    addWorkflow,
+    removeWorkflow,
+    setCurrentWorkflow,
+    clearCurrentWorkflow,
+    addNode,
+    updateNodePosition,
+    updateNodeConfig,
+    removeNode,
+    setSelectedNode,
+    addEdge,
+    removeEdge,
+    setSelectedEdge,
+    setConnectingFrom,
+    clearConnecting,
+    canConnect,
+    setExecutionStatus,
+    setExecutionResults,
+    setFinalOutput,
+    resetExecution,
+    getSaveData
+  } = store;
+
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState('');
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [nodes, setNodes] = useState([]);
-  const [edges, setEdges] = useState([]);
-  const [selectedNode, setSelectedNode] = useState(null);
   const [activeId, setActiveId] = useState(null);
+  const [activeData, setActiveData] = useState(null); // 保存拖拽时的数据
+  const [connectingFromState, setConnectingFromLocal] = useState(null);
+  const [dragPosition, setDragPosition] = useState(null);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
+      activationConstraint: { distance: 8 }
     })
   );
 
@@ -185,11 +588,9 @@ export function WorkflowsPage() {
       if (response.data.success) {
         addWorkflow(response.data.workflow);
         setCurrentWorkflow(response.data.workflow);
-        setNodes([]);
-        setEdges([]);
-        toast.success('工作流创建成功');
         setIsCreating(false);
         setNewName('');
+        toast.success('工作流创建成功');
       }
     } catch (error) {
       toast.error('创建失败');
@@ -200,7 +601,8 @@ export function WorkflowsPage() {
     if (!currentWorkflow) return;
 
     try {
-      await workflowApi.updateWorkflow(currentWorkflow.id, { nodes, edges });
+      const saveData = getSaveData();
+      await workflowApi.updateWorkflow(currentWorkflow.id, saveData);
       toast.success('保存成功');
     } catch (error) {
       toast.error('保存失败');
@@ -208,15 +610,32 @@ export function WorkflowsPage() {
   };
 
   const handleExecuteWorkflow = async () => {
-    if (!currentWorkflow) return;
+    if (!currentWorkflow || nodes.length === 0) {
+      toast.warning('请先添加节点');
+      return;
+    }
 
     setIsExecuting(true);
+    resetExecution();
+    setExecutionStatus('running');
+
     try {
-      const response = await workflowApi.executeWorkflow(currentWorkflow.id);
+      const response = await workflowApi.executeWorkflow(currentWorkflow.id, {
+        nodes,
+        edges
+      });
+
       if (response.data.success) {
-        toast.success('工作流执行已启动');
+        setExecutionStatus('completed');
+        setExecutionResults(response.data.results || {});
+        setFinalOutput(response.data.finalOutput);
+        toast.success('执行完成');
+      } else {
+        setExecutionStatus('error');
+        toast.error(response.data.error || '执行失败');
       }
     } catch (error) {
+      setExecutionStatus('error');
       toast.error('执行失败');
     } finally {
       setIsExecuting(false);
@@ -233,71 +652,112 @@ export function WorkflowsPage() {
     }
   };
 
+  // === DnD Kit 事件处理 ===
+
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
+    // 在拖拽开始时保存数据，避免在结束时数据丢失
+    setActiveData(event.active.data.current);
   };
 
   const handleDragEnd = (event) => {
-    const { active, over } = event;
+    const { over } = event;
     setActiveId(null);
+    setActiveData(null);
 
     if (!over || over.id !== 'canvas') return;
 
-    const activeData = active.data.current;
-    if (activeData?.type === 'new') {
-      const newNode = {
-        id: `${activeData.node.id}-${Date.now()}`,
-        type: activeData.node.id,
-        label: '',
-        position: { x: 100, y: 100 },
-        config: {}
-      };
-      setNodes(prev => [...prev, newNode]);
+    // 使用在 handleDragStart 时保存的数据
+    if (activeData?.type === 'template') {
+      // 从节点库拖拽新节点到画布
+      const canvasRect = over.rect;
+      const dropX = event.activatorEvent?.clientX - canvasRect.left - 90 || 100;
+      const dropY = event.activatorEvent?.clientY - canvasRect.top - 50 || 100;
+
+      const newNode = createNodeData(activeData.nodeType.id, { x: Math.max(0, dropX), y: Math.max(0, dropY) });
+      addNode(newNode);
+      toast.success(`已添加 ${activeData.nodeType.name} 节点`);
     }
   };
 
-  const handleDragOver = (event) => {
-    // Handle drag over for positioning
-  };
+  // === 端口连线处理 ===
 
-  const handleNodeSelect = (node) => {
-    setSelectedNode(node);
-  };
-
-  const handleNodeDelete = (nodeId) => {
-    setNodes(prev => prev.filter(n => n.id !== nodeId));
-    setEdges(prev => prev.filter(e => e.source !== nodeId && e.target !== nodeId));
-    if (selectedNode?.id === nodeId) {
-      setSelectedNode(null);
+  const handlePortDragStart = (nodeId, portId, portType) => {
+    if (portType === 'output') {
+      setConnectingFromLocal({ nodeId, portId, portType });
     }
   };
 
-  const handleNodePositionChange = (nodeId, position) => {
-    setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, position } : n));
-  };
-
-  const handleConnect = () => {
-    if (nodes.length < 2) {
-      toast.warning('需要至少两个节点才能连接');
+  const handlePortDragEnd = (targetNodeId, targetPortId, targetPortType) => {
+    if (!connectingFromState || targetPortType !== 'input') {
+      setConnectingFromLocal(null);
+      setDragPosition(null);
       return;
     }
-    // Simple connect mode - connect first two unconnected nodes
-    const availableNodes = nodes.filter(n => 
-      !edges.some(e => e.source === n.id) || !edges.some(e => e.target === n.id)
-    );
-    if (availableNodes.length >= 2) {
-      const newEdge = {
-        id: `edge-${Date.now()}`,
-        source: availableNodes[0].id,
-        target: availableNodes[1].id
-      };
-      setEdges(prev => [...prev, newEdge]);
-      toast.success('已连接');
+
+    const sourceNodeId = connectingFromState.nodeId;
+
+    if (sourceNodeId === targetNodeId) {
+      toast.warning('不能连接到自己');
+      setConnectingFromLocal(null);
+      setDragPosition(null);
+      return;
     }
+
+    if (!canConnect(sourceNodeId, targetNodeId)) {
+      toast.warning('连接已存在或会形成循环');
+      setConnectingFromLocal(null);
+      setDragPosition(null);
+      return;
+    }
+
+    const newEdge = {
+      id: `edge-${Date.now()}`,
+      source: sourceNodeId,
+      sourcePort: connectingFromState.portId,
+      target: targetNodeId,
+      targetPort: targetPortId
+    };
+
+    addEdge(newEdge);
+    toast.success('连接创建成功');
+    setConnectingFromLocal(null);
+    setDragPosition(null);
   };
+
+  // 鼠标移动时更新拖拽连线位置
+  useEffect(() => {
+    if (!connectingFromState) return;
+
+    const handleMouseMove = (e) => {
+      const canvas = document.querySelector('.workflow-canvas');
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      setDragPosition({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+    };
+
+    const handleMouseUp = () => {
+      // 如果鼠标释放时没有落到输入端口，取消连线
+      setConnectingFromLocal(null);
+      setDragPosition(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [connectingFromState]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -312,6 +772,7 @@ export function WorkflowsPage() {
         </Button>
       </div>
 
+      {/* 创建新工作流对话框 */}
       {isCreating && (
         <Card>
           <CardHeader>
@@ -340,7 +801,9 @@ export function WorkflowsPage() {
         </Card>
       )}
 
+      {/* 工作流列表或编辑器 */}
       {!currentWorkflow ? (
+        /* 工作流列表 */
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {workflows.map((workflow) => (
             <Card key={workflow.id} className="hover:shadow-lg transition-shadow cursor-pointer group">
@@ -370,11 +833,7 @@ export function WorkflowsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => {
-                    setCurrentWorkflow(workflow);
-                    setNodes(workflow.nodes || []);
-                    setEdges(workflow.edges || []);
-                  }}
+                  onClick={() => setCurrentWorkflow(workflow)}
                 >
                   编辑
                 </Button>
@@ -390,102 +849,125 @@ export function WorkflowsPage() {
           )}
         </div>
       ) : (
-        <div className="space-y-4">
+        /* 工作流编辑器 */
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div className="space-y-4">
+          {/* 工具栏 */}
           <Card>
             <CardContent className="flex items-center justify-between py-3">
               <div className="flex items-center gap-4">
-                <Button variant="ghost" onClick={() => setCurrentWorkflow(null)}>
+                <Button variant="ghost" onClick={() => clearCurrentWorkflow()}>
+                  <X className="h-4 w-4" />
                   返回
                 </Button>
                 <h2 className="font-semibold">{currentWorkflow.name}</h2>
+                <span className="text-xs text-[var(--text-secondary)]">
+                  {nodes.length} 节点 · {edges.length} 连接
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handleConnect}>
-                  <ArrowRight className="h-4 w-4" />
-                  连接节点
-                </Button>
                 <Button variant="outline" onClick={handleSaveWorkflow}>
                   <Save className="h-4 w-4" />
                   保存
                 </Button>
-                <Button onClick={handleExecuteWorkflow} disabled={isExecuting}>
-                  <Play className="h-4 w-4" />
+                <Button onClick={handleExecuteWorkflow} disabled={isExecuting || nodes.length === 0}>
+                  {isExecuting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                   {isExecuting ? '执行中...' : '执行'}
                 </Button>
               </div>
             </CardContent>
           </Card>
 
+          {/* 编辑器主体 */}
           <div className="grid lg:grid-cols-4 gap-4">
+            {/* 节点库 */}
             <Card className="lg:col-span-1">
               <CardHeader>
                 <CardTitle>节点库</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {nodeTypes.map((nodeType) => (
-                  <DraggableNode key={nodeType.id} node={nodeType} />
+                  <DraggableNodeTemplate key={nodeType.id} nodeType={nodeType} />
                 ))}
               </CardContent>
             </Card>
 
+            {/* 画布 */}
             <div className="lg:col-span-3">
-              <DndContext
-                sensors={sensors}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-              >
-                <Canvas
-                  nodes={nodes}
-                  edges={edges}
-                  selectedNode={selectedNode}
-                  onNodeSelect={handleNodeSelect}
-                  onDragOver={handleDragOver}
-                  onDrop={(e) => e.preventDefault()}
-                />
-                <DragOverlay>
-                  {activeId ? (
-                    <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--primary)] shadow-lg">
-                      <p className="text-sm font-medium">拖拽中...</p>
-                    </div>
-                  ) : null}
-                </DragOverlay>
-              </DndContext>
+              <WorkflowCanvas
+                nodes={nodes}
+                edges={edges}
+                selectedNode={selectedNode}
+                selectedEdge={selectedEdge}
+                connectingFrom={connectingFromState}
+                dragPosition={dragPosition}
+                onNodeSelect={setSelectedNode}
+                onNodeMove={updateNodePosition}
+                onEdgeSelect={setSelectedEdge}
+                onEdgeDelete={removeEdge}
+                onPortDragStart={handlePortDragStart}
+                onPortDragEnd={handlePortDragEnd}
+              />
+              <DragOverlay>
+                {activeId ? (
+                  <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--primary)] shadow-lg">
+                    <p className="text-sm font-medium">拖拽中...</p>
+                  </div>
+                ) : null}
+              </DragOverlay>
             </div>
           </div>
 
-          {selectedNode && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>节点配置</CardTitle>
-                <Button size="sm" variant="ghost" onClick={() => handleNodeDelete(selectedNode.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>节点名称</Label>
-                    <Input
-                      value={selectedNode.label || ''}
-                      onChange={(e) => {
-                        setNodes(prev => prev.map(n => 
-                          n.id === selectedNode.id ? { ...n, label: e.target.value } : n
-                        ));
-                        setSelectedNode(prev => ({ ...prev, label: e.target.value }));
-                      }}
-                      placeholder="输入节点名称..."
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label>节点类型</Label>
-                    <p className="mt-2 text-sm">{nodeTypes.find(t => t.id === selectedNode.type)?.name}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+          {/* 配置/信息面板 */}
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* 节点配置 */}
+            {selectedNode && (
+              <NodeConfigPanel
+                node={selectedNode}
+                onUpdateConfig={(nodeId, updates) => {
+                  if (updates.label !== undefined) {
+                    // 更新名称时更新整个节点
+                    const node = nodes.find(n => n.id === nodeId);
+                    updateNodeConfig(nodeId, { ...node?.config });
+                    // 直接更新节点 label
+                    store.updateNode(nodeId, { label: updates.label });
+                  } else {
+                    updateNodeConfig(nodeId, updates.config || {});
+                  }
+                }}
+                onDelete={removeNode}
+              />
+            )}
+
+            {/* 连线信息 */}
+            {selectedEdge && !selectedNode && (
+              <EdgeInfoPanel
+                edge={selectedEdge}
+                nodes={nodes}
+                onDelete={removeEdge}
+              />
+            )}
+
+            {/* 执行结果 */}
+            {executionStatus !== 'idle' && (
+              <ExecutionResultPanel
+                status={executionStatus}
+                results={executionResults}
+                finalOutput={finalOutput}
+              />
+            )}
+          </div>
+
+          {/* 使用提示 */}
+          <Card className="bg-[var(--background)]">
+            <CardContent className="py-3">
+              <p className="text-sm text-[var(--text-secondary)]">
+                💡 使用提示：从左侧拖拽节点到画布 → 点击输出端口并拖拽到另一节点的输入端口创建连接 → 配置节点参数 → 点击执行
+              </p>
+            </CardContent>
+          </Card>
+          </div>
+        </DndContext>
       )}
     </div>
   );
