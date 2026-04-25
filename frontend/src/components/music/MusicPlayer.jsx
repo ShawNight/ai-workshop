@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 import { Play, Pause, Download, RefreshCw, CheckCircle, XCircle, ListMusic } from 'lucide-react';
 import { LyricsSyncViewer } from './LyricsSyncViewer';
+import { musicApi } from '../../api';
 
 export function MusicPlayer({
   audioUrl,
@@ -15,16 +16,43 @@ export function MusicPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [lrc, setLrc] = useState('');
+  const [lrcLoading, setLrcLoading] = useState(false);
   const [viewMode, setViewMode] = useState('player'); // 'player' | 'lyrics'
   const audioRef = useRef(null);
   const progressIntervalRef = useRef(null);
+  const lrcFetchedRef = useRef(false);
 
   // 重置状态当 audioUrl 变化时
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
+    setLrc('');
+    lrcFetchedRef.current = false;
   }, [audioUrl]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 获取到音频时长后，自动请求 LRC 生成
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (duration > 0 && lyrics && !lrc && !lrcLoading && !lrcFetchedRef.current) {
+      lrcFetchedRef.current = true;
+      setLrcLoading(true);
+      musicApi.generateLrc({ lyrics, duration })
+        .then(res => {
+          if (res.data?.success && res.data.lrc) {
+            setLrc(res.data.lrc);
+          }
+        })
+        .catch(err => {
+          console.warn('[LRC] 生成失败，将使用估算模式:', err.message);
+        })
+        .finally(() => setLrcLoading(false));
+    }
+  }, [duration, lyrics, lrc, lrcLoading]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 音频事件监听
   useEffect(() => {
@@ -165,6 +193,7 @@ export function MusicPlayer({
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
           <LyricsSyncViewer
             lyrics={lyrics}
+            lrc={lrc}
             currentTime={currentTime}
             duration={duration}
             isPlaying={isPlaying}

@@ -9,6 +9,8 @@
 - 多轮对话优化歌词
 - 调用 MiniMax API 生成音乐
 - 在线试听和下载
+- **LRC 歌词同步** — 基于 AI 生成 LRC 时间戳，实现歌词逐行高亮同步播放；无 LRC 时自动回退到估算模式
+- 歌词提示词生成优化 — 增加 system 角色约束，确保 AI 返回纯 JSON 格式
 
 ### AI 小说写作
 - 故事大纲生成
@@ -24,7 +26,7 @@
 
 - **前端**: React 18+ + Vite, TailwindCSS, Zustand, @dnd-kit
 - **后端**: Python Flask
-- **API**: MiniMax 音乐生成 API
+- **API**: MiniMax 音乐生成 API（M2.7 模型）
 
 ## 快速开始
 
@@ -76,7 +78,7 @@ npm run dev
 
 ### MiniMax API 配置
 
-应用使用 mmx CLI 或直接调用 MiniMax API 生成音乐。
+应用使用 MiniMax API（M2.7 模型）生成音乐和歌词时间戳。
 请在 `backend/.env` 文件中配置 MiniMax API key：
 
 ```
@@ -87,10 +89,13 @@ MINIMAX_API_KEY=your_api_key_here
 
 ```
 ai-workshop/
-├── SPEC.md              # 完整规格说明文档
+├── CHANGELOG.md         # 变更记录
 ├── frontend/
 │   ├── src/
 │   │   ├── components/   # React 组件
+│   │   │   └── music/    # 音乐模块组件
+│   │   │       ├── MusicPlayer.jsx         # 播放器（含 LRC 自动获取）
+│   │   │       └── LyricsSyncViewer.jsx    # 歌词同步显示（LRC + 估算双模式）
 │   │   ├── pages/       # 页面组件
 │   │   ├── store/       # Zustand 状态管理
 │   │   ├── api/         # API 模块
@@ -99,6 +104,7 @@ ai-workshop/
 └── backend/
     ├── app.py           # Flask 主应用
     ├── routes/          # API 路由 (Python)
+    │   └── music.py     # 音乐路由（含 /lrc 生成接口）
     ├── services/        # 业务逻辑
     ├── requirements.txt # Python 依赖
     └── uploads/         # 音频文件存储

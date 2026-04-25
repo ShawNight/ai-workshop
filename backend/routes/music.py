@@ -223,14 +223,15 @@ def generate_prompt():
     if not MINIMAX_API_KEY:
         return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
 
-    prompt_text = f"""根据用户描述生成歌曲创作提示词，只返回JSON，不要任何解释。
+    system_msg = """你是一个JSON生成器。你必须直接输出JSON对象，不要输出任何思考过程、解释或额外文字。
+不要使用<think>标签，不要推理，直接输出JSON。"""
+
+    prompt_text = f"""根据用户描述生成歌曲创作提示词。
 
 用户描述：{user_description}
 
-返回格式示例：
-{{"theme":"春天","mood":"欢快","genre":"流行","description":"描述万物复苏的美好景象"}}
-
-请直接返回符合格式的JSON，不要包含任何其他文字。"""
+直接返回如下格式的JSON，不要包含任何其他文字：
+{{"theme":"春天","mood":"欢快","genre":"流行","description":"描述万物复苏的美好景象"}}"""
 
     try:
         response = requests.post(
@@ -238,10 +239,11 @@ def generate_prompt():
             json={
                 "model": "MiniMax-M2.7",
                 "messages": [
+                    {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt_text}
                 ],
                 "temperature": 0.7,
-                "max_tokens": 300
+                "max_tokens": 1024
             },
             headers={
                 "Authorization": f"Bearer {MINIMAX_API_KEY}",
@@ -582,6 +584,100 @@ def download(filename):
     if not os.path.exists(file_path):
         return jsonify({"success": False, "error": "文件不存在"}), 404
     return send_file(file_path, mimetype="audio/mpeg")
+
+
+@music_bp.route("/lrc", methods=["POST"])
+def generate_lrc():
+    """根据歌词文本和音频时长生成 LRC 格式时间戳歌词"""
+    data = request.get_json()
+    lyrics = data.get("lyrics", "")
+    duration = data.get("duration", 0)
+
+    if not lyrics:
+        return jsonify({"success": False, "error": "缺少歌词内容"}), 400
+
+    if not MINIMAX_API_KEY:
+        return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
+
+    # 构建歌曲结构描述，帮助模型理解段落
+    lines = [l.strip() for l in lyrics.strip().split('\n') if l.strip()]
+    line_count = len(lines)
+
+    duration_hint = ""
+    if duration > 0:
+        mins = int(duration) // 60
+        secs = int(duration) % 60
+        duration_hint = f"歌曲总时长为{mins}分{secs}秒（{duration}秒），"
+
+    prompt = f"""你是一位专业的歌词时间标注专家。请为以下歌词生成 LRC 格式的时间戳。
+
+{duration_hint}请根据段落结构和歌词内容，为每一行歌词分配合理的时间戳。
+
+要求：
+1. 返回标准 LRC 格式，每行格式为 [mm:ss.xx]歌词内容
+2. 前奏/间奏/尾奏的纯器乐部分用 [mm:ss.xx][Instrumental] 标注
+3. 时间戳必须严格递增
+4. 确保最后一行时间戳不超过总时长
+5. 只返回 LRC 内容，不要任何解释
+
+歌词内容：
+{lyrics}"""
+
+    try:
+        response = requests.post(
+            MINIMAX_CHAT_URL,
+            json={
+                "model": "MiniMax-M2.7",
+                "messages": [
+                    {"role": "system", "content": "你是LRC歌词时间标注专家，只输出LRC格式内容，不输出任何解释或思考过程。"},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 2048
+            },
+            headers={
+                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=30,
+        )
+
+        result = response.json()
+        print(f"[LRC生成] API Response: {json.dumps(result, ensure_ascii=False)[:500]}")
+
+        if result.get("base_resp", {}).get("status_code") != 0:
+            error_msg = result.get("base_resp", {}).get("status_msg", "API调用失败")
+            return jsonify({"success": False, "error": error_msg}), 500
+
+        content = None
+        choices = result.get("choices", [])
+        if choices:
+            content = choices[0].get("message", {}).get("content", "").strip()
+
+        if not content:
+            return jsonify({"success": False, "error": "AI未返回有效内容"}), 500
+
+        # 清理可能的 markdown 代码块标记
+        content = re.sub(r'^```lrc\s*', '', content)
+        content = re.sub(r'^```\s*', '', content)
+        content = re.sub(r'\s*```$', '', content)
+
+        # 验证 LRC 格式：至少有一行带时间戳
+        lrc_lines = [l for l in content.strip().split('\n') if re.match(r'\[\d{2}:\d{2}', l)]
+        if not lrc_lines:
+            return jsonify({"success": False, "error": "生成的LRC格式无效"}), 500
+
+        return jsonify({
+            "success": True,
+            "lrc": content.strip(),
+            "lineCount": len(lrc_lines)
+        })
+
+    except requests.exceptions.Timeout:
+        return jsonify({"success": False, "error": "请求超时，请重试"}), 500
+    except Exception as e:
+        print(f"[LRC生成] Error: {e}")
+        return jsonify({"success": False, "error": f"LRC生成失败: {str(e)}"}), 500
 
 
 @music_bp.route("/lyrics/modify", methods=["POST"])

@@ -2,7 +2,45 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '../../lib/utils';
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 
-// 段落速度权重（相对于基准速度）
+// 解析 LRC 格式歌词为带时间戳的行
+const parseLRC = (lrcText) => {
+  if (!lrcText) return null;
+
+  const lines = lrcText.trim().split('\n');
+  const timedLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // 匹配 [mm:ss.xx] 或 [mm:ss] 格式
+    const match = trimmed.match(/^\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\](.*)/);
+    if (match) {
+      const minutes = parseInt(match[1], 10);
+      const seconds = parseInt(match[2], 10);
+      const ms = match[3] ? parseInt(match[3].padEnd(3, '0'), 10) : 0;
+      const time = minutes * 60 + seconds + ms / 1000;
+      const text = match[4].trim();
+
+      // 跳过元数据标签（[ti:xxx], [ar:xxx] 等）
+      if (text || /^(\d{2}):(\d{2})/.test(trimmed)) {
+        timedLines.push({ time, text: text || '[Instrumental]', section: 'lrc' });
+      }
+    }
+  }
+
+  if (timedLines.length === 0) return null;
+
+  // 计算每行 duration
+  for (let i = 0; i < timedLines.length; i++) {
+    const nextTime = i + 1 < timedLines.length ? timedLines[i + 1].time : timedLines[i].time + 3;
+    timedLines[i].duration = nextTime - timedLines[i].time;
+  }
+
+  return timedLines;
+};
+
+// 段落速度权重（相对于基准速度）— 仅估算模式使用
 const SECTION_SPEED_WEIGHT = {
   verse: 1.0,      // 主歌 - 正常速度
   chorus: 0.85,    // 副歌 - 通常更快
@@ -104,6 +142,7 @@ const formatTime = (seconds) => {
 
 export function LyricsSyncViewer({
   lyrics,
+  lrc,          // LRC 格式歌词，优先使用
   currentTime = 0,
   duration = 0,  // 接收实际音频时长
   isPlaying = false,
@@ -114,10 +153,19 @@ export function LyricsSyncViewer({
   const lineRefs = useRef([]);
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
 
-  // 解析歌词，传入实际时长进行动态调整
-  const timedLines = useMemo(() => parseLyricsToTimedLines(lyrics, duration), [lyrics, duration]);
+  // 优先解析 LRC，回退到估算模式
+  const timedLines = useMemo(() => {
+    if (lrc) {
+      const parsed = parseLRC(lrc);
+      if (parsed && parsed.length > 0) return parsed;
+    }
+    return parseLyricsToTimedLines(lyrics, duration);
+  }, [lrc, lyrics, duration]);
+
+  const isLRCMode = lrc && parseLRC(lrc);
 
   // 计算当前行
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!timedLines.length) {
       setActiveLineIndex(-1);
@@ -137,6 +185,7 @@ export function LyricsSyncViewer({
     }
     setActiveLineIndex(activeIndex);
   }, [currentTime, timedLines]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 自动滚动到当前行
   useEffect(() => {
@@ -185,7 +234,7 @@ export function LyricsSyncViewer({
           {isPlaying ? (
             <div className="flex items-center gap-1 text-[var(--primary)]">
               <Play className="h-4 w-4" />
-              <span className="text-xs">正在播放</span>
+              <span className="text-xs">{isLRCMode ? '同步播放' : '正在播放'}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 text-[var(--text-secondary)]">
