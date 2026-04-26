@@ -30,7 +30,15 @@ export const novelApi = {
   deleteProject: (id) => api.delete(`/novel/projects/${id}`),
   generateOutline: (data) => api.post('/novel/generate-outline', data),
   generateChapter: (data) => api.post('/novel/generate-chapter', data),
-  createCharacter: (data) => api.post('/novel/character', data)
+  createCharacter: (data) => api.post('/novel/character', data),
+  continueChapter: (data) => api.post('/novel/continue-chapter', data),
+  rewriteText: (data) => api.post('/novel/rewrite', data),
+  brainstorm: (data) => api.post('/novel/brainstorm', data),
+  getStats: (projectId) => api.get(`/novel/projects/${projectId}/stats`),
+  saveDraft: (projectId, chapterId, data) => api.post(`/novel/projects/${projectId}/drafts/${chapterId}`, data),
+  getDrafts: (projectId, chapterId) => api.get(`/novel/projects/${projectId}/drafts/${chapterId}`),
+  getDraftContent: (draftId) => api.get(`/novel/drafts/${draftId}`),
+  logWriting: (projectId, data) => api.post(`/novel/projects/${projectId}/stats/log`, data),
 };
 
 export const workflowApi = {

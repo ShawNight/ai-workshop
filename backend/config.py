@@ -14,13 +14,14 @@ DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "minimax")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_API_URL = os.getenv("LLM_API_URL", "https://api.minimaxi.com/v1")
 LLM_CHAT_URL = os.getenv("LLM_CHAT_URL", "https://api.minimaxi.com/v1/chat/completions")
-LLM_TEXT_URL = os.getenv("LLM_TEXT_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
+LLM_TEXT_URL = os.getenv("LLM_TEXT_URL", "https://api.minimaxi.com/v1/chat/completions")
 LLM_LYRICS_URL = os.getenv("LLM_LYRICS_URL", "https://api.minimaxi.com/v1/lyrics_generation")
 LLM_MUSIC_URL = os.getenv("LLM_MUSIC_URL", "https://api.minimaxi.com/v1/music_generation")
 
 # 模型配置
 LLM_LYRICS_MODEL = os.getenv("LLM_LYRICS_MODEL", "MiniMax-M2.7")
 LLM_CHAT_MODEL = os.getenv("LLM_CHAT_MODEL", "MiniMax-M2.7")
+LLM_TEXT_MODEL = os.getenv("LLM_TEXT_MODEL", "MiniMax-Text-01")
 LLM_MUSIC_MODEL = os.getenv("LLM_MUSIC_MODEL", "music-2.6")
 
 # Server 配置
