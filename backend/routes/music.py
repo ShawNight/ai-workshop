@@ -10,16 +10,10 @@ from flask import Blueprint, request, jsonify, send_file
 import requests
 from datetime import datetime
 from database import get_connection
+from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_LYRICS_MODEL, LLM_CHAT_MODEL, LLM_MUSIC_MODEL
 
 music_bp = Blueprint("music", __name__)
 
-# MiniMax API 配置
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-MINIMAX_API_URL = "https://api.minimaxi.com/v1/lyrics_generation"
-MINIMAX_CHAT_URL = "https://api.minimaxi.com/v1/chat/completions"
-
-# 检查 mmx CLI 是否可用
-MMX_AVAILABLE = bool(shutil.which("mmx"))
 
 # 任务状态存储（带过期清理）
 jobs = {}
@@ -58,7 +52,7 @@ def sanitize_filename(name):
 
 def generate_song_title_with_llm(theme, mood, genre, lyrics_preview):
     """使用MiniMax文本模型生成歌名"""
-    if not MINIMAX_API_KEY:
+    if not LLM_API_KEY:
         return sanitize_filename(theme) or "AI创作歌曲"
 
     try:
@@ -71,9 +65,9 @@ def generate_song_title_with_llm(theme, mood, genre, lyrics_preview):
 只返回歌名本身，不要加任何前缀、引号或解释。"""
 
         response = requests.post(
-            MINIMAX_CHAT_URL,
+            LLM_CHAT_URL,
             json={
-                "model": "MiniMax-M2.7",
+                "model": LLM_CHAT_MODEL,
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
@@ -81,7 +75,7 @@ def generate_song_title_with_llm(theme, mood, genre, lyrics_preview):
                 "max_tokens": 20
             },
             headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
             timeout=30,
@@ -156,18 +150,18 @@ def extract_song_title(lyrics_content, theme=""):
 
 def generate_lyrics_with_llm(prompt_text):
     """使用MiniMax生成歌词"""
-    if not MINIMAX_API_KEY:
-        raise ValueError("未配置 MiniMax API Key，请在 .env 文件中设置 MINIMAX_API_KEY")
+    if not LLM_API_KEY:
+        raise ValueError("未配置 MiniMax API Key，请在 .env 文件中设置 LLM_API_KEY")
 
     try:
         response = requests.post(
-            MINIMAX_API_URL,
+            LLM_LYRICS_URL,
             json={
                 "mode": "write_full_song",
                 "prompt": prompt_text,
             },
             headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
             timeout=60,
@@ -220,7 +214,7 @@ def generate_prompt():
     if not user_description:
         return jsonify({"success": False, "error": "请输入歌曲描述"}), 400
 
-    if not MINIMAX_API_KEY:
+    if not LLM_API_KEY:
         return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
 
     system_msg = """你是一个JSON生成器。你必须直接输出JSON对象，不要输出任何思考过程、解释或额外文字。
@@ -235,9 +229,9 @@ def generate_prompt():
 
     try:
         response = requests.post(
-            MINIMAX_CHAT_URL,
+            LLM_CHAT_URL,
             json={
-                "model": "MiniMax-M2.7",
+                "model": LLM_CHAT_MODEL,
                 "messages": [
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt_text}
@@ -246,7 +240,7 @@ def generate_prompt():
                 "max_tokens": 1024
             },
             headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
             timeout=30,
@@ -359,13 +353,6 @@ def generate_music():
     if not lyrics:
         return jsonify({"success": False, "error": "缺少歌词内容"}), 400
 
-    # 检查 mmx CLI 是否可用
-    if not MMX_AVAILABLE:
-        return jsonify({
-            "success": False,
-            "error": "mmx CLI 未安装或不在 PATH 中，请先安装 MiniMax mmx CLI"
-        }), 500
-
     job_id = str(uuid.uuid4())
     uploads_dir = ensure_uploads_dir()
 
@@ -388,82 +375,72 @@ def generate_music():
 
     generation_prompt = style or "pop music, upbeat, catchy melody"
 
-    # 转义参数以防止命令注入
-    def escape_shell_arg(s):
-        return s.replace('\\', '\\\\').replace('"', '\\"').replace("'", "'").replace("\n", "\\n").replace("$", "\\$").replace("`", "\\`")
-
-    escaped_lyrics = escape_shell_arg(lyrics)
-    escaped_prompt = escape_shell_arg(generation_prompt)
-    escaped_output = escape_shell_arg(output_file)
-
-    command = f'mmx music generate --lyrics "{escaped_lyrics}" --prompt "{escaped_prompt}" --out "{escaped_output}" --quiet --non-interactive'
-
     jobs[job_id]["status"] = "generating"
     jobs[job_id]["progress"] = 5
 
-    # 启动后台进程
+    # 使用 MiniMax API 生成音乐
     def run_generation():
         try:
-            proc = subprocess.Popen(
-                command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
+            import base64
+            headers = {
+                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": LLM_MUSIC_MODEL,
+                "prompt": generation_prompt,
+                "lyrics": lyrics
+            }
 
-            # 等待进程完成（带超时）
-            stdout, stderr = proc.communicate(timeout=300)  # 5分钟超时
+            response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, timeout=300)
+            result = response.json()
 
-            if proc.returncode != 0:
+            # 检查业务错误
+            base_resp = result.get("base_resp", {})
+            if base_resp.get("status_code") != 0:
+                error_msg = base_resp.get("status_msg", "音乐生成失败")
                 jobs[job_id]["status"] = "failed"
-                jobs[job_id]["error"] = stderr or "音乐生成失败"
+                jobs[job_id]["error"] = error_msg
                 return
 
-            # 检查输出文件是否存在
-            if os.path.exists(output_file):
-                jobs[job_id]["status"] = "completed"
-                jobs[job_id]["progress"] = 100
-
-                # 保存到数据库历史记录
-                try:
-                    save_music_to_db(
-                        job_id,
-                        safe_title,
-                        jobs[job_id].get("user_description", ""),
-                        jobs[job_id].get("prompt", ""),
-                        lyrics,
-                        os.path.basename(output_file)
-                    )
-                except Exception as e:
-                    print(f"[警告] 保存音乐历史失败: {e}")
-            else:
+            # 直接获取 base64 音频数据
+            data = result.get("data", {})
+            audio_b64 = data.get("audio")
+            if not audio_b64:
                 jobs[job_id]["status"] = "failed"
-                jobs[job_id]["error"] = "生成完成但未找到输出文件"
+                jobs[job_id]["error"] = "未获取到音频数据"
+                return
 
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            # music-2.6 返回的是十六进制字符串，不是 base64
+            audio_bytes = bytes.fromhex(audio_b64)
+            with open(output_file, "wb") as f:
+                f.write(audio_bytes)
+
+            jobs[job_id]["status"] = "completed"
+            jobs[job_id]["progress"] = 100
+
+            # 保存到数据库历史记录
+            try:
+                save_music_to_db(
+                    job_id,
+                    safe_title,
+                    jobs[job_id].get("user_description", ""),
+                    jobs[job_id].get("prompt", ""),
+                    lyrics,
+                    os.path.basename(output_file)
+                )
+            except Exception as e:
+                print(f"[警告] 保存音乐历史失败: {e}")
+
+        except requests.exceptions.Timeout:
             jobs[job_id]["status"] = "failed"
-            jobs[job_id]["error"] = "音乐生成超时（5分钟）"
+            jobs[job_id]["error"] = "音乐生成请求超时"
         except Exception as e:
             jobs[job_id]["status"] = "failed"
             jobs[job_id]["error"] = str(e)
 
     # 在后台线程中运行生成
     threading.Thread(target=run_generation, daemon=True).start()
-
-    # 模拟进度更新（因为 mmx 没有进度回调）
-    def simulate_progress():
-        while True:
-            job = jobs.get(job_id)
-            if not job or job["status"] != "generating":
-                break
-            # 模拟进度增长，最大到 95%（等待真实完成）
-            if job["progress"] < 95:
-                job["progress"] = min(95, job["progress"] + 5)
-            time.sleep(5)
-
-    threading.Thread(target=simulate_progress, daemon=True).start()
 
     return jsonify({"success": True, "jobId": job_id, "message": "音乐生成任务已启动"})
 
@@ -550,30 +527,52 @@ def delete_music_history(music_id):
         return jsonify({"success": False, "error": "记录不存在"}), 404
 
 
-@music_bp.route("/mmx-check", methods=["GET"])
-def check_mmx():
-    """检查 mmx CLI 状态"""
-    global MMX_AVAILABLE
-    MMX_AVAILABLE = bool(shutil.which("mmx"))
-
-    if MMX_AVAILABLE:
-        # 尝试获取版本信息
-        try:
-            result = subprocess.run(["mmx", "--version"], capture_output=True, text=True, timeout=5)
-            version = result.stdout.strip() or result.stderr.strip() or "unknown"
-        except:
-            version = "installed"
-
-        return jsonify({
-            "success": True,
-            "available": True,
-            "version": version
-        })
-    else:
+@music_bp.route("/music-check", methods=["GET"])
+def check_music_api():
+    """检查音乐生成 API 是否可用"""
+    if not LLM_API_KEY:
         return jsonify({
             "success": True,
             "available": False,
-            "error": "mmx CLI 未安装，请访问 MiniMax 官网安装"
+            "error": "未配置 LLM_API_KEY，音乐生成 API 不可用"
+        })
+
+    try:
+        # 用轻量请求测试 API 可达性
+        headers = {
+            "Authorization": f"Bearer {LLM_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        response = requests.post(LLM_MUSIC_URL, headers=headers, json={}, timeout=10)
+        # 只要有响应（即使是参数错误 4xx），说明 API 可达
+        if response.status_code < 500:
+            return jsonify({
+                "success": True,
+                "available": True
+            })
+        else:
+            return jsonify({
+                "success": True,
+                "available": False,
+                "error": "音乐生成 API 返回服务端错误"
+            })
+    except requests.exceptions.ConnectionError:
+        return jsonify({
+            "success": True,
+            "available": False,
+            "error": "无法连接到音乐生成 API，请检查网络"
+        })
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "success": True,
+            "available": False,
+            "error": "音乐生成 API 响应超时"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": True,
+            "available": False,
+            "error": f"音乐生成 API 检查失败: {str(e)}"
         })
 
 
@@ -596,7 +595,7 @@ def generate_lrc():
     if not lyrics:
         return jsonify({"success": False, "error": "缺少歌词内容"}), 400
 
-    if not MINIMAX_API_KEY:
+    if not LLM_API_KEY:
         return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
 
     # 构建歌曲结构描述，帮助模型理解段落
@@ -625,9 +624,9 @@ def generate_lrc():
 
     try:
         response = requests.post(
-            MINIMAX_CHAT_URL,
+            LLM_CHAT_URL,
             json={
-                "model": "MiniMax-M2.7",
+                "model": LLM_CHAT_MODEL,
                 "messages": [
                     {"role": "system", "content": "你是LRC歌词时间标注专家，只输出LRC格式内容，不输出任何解释或思考过程。"},
                     {"role": "user", "content": prompt}
@@ -636,7 +635,7 @@ def generate_lrc():
                 "max_tokens": 2048
             },
             headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
             timeout=30,
@@ -694,7 +693,7 @@ def modify_lyrics():
     if not suggestion:
         return jsonify({"success": False, "error": "请输入修改建议"}), 400
 
-    if not MINIMAX_API_KEY:
+    if not LLM_API_KEY:
         return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
 
     # 构建 Prompt - 不依赖mood/genre，让AI自动判断风格
@@ -719,9 +718,9 @@ def modify_lyrics():
 
     try:
         response = requests.post(
-            MINIMAX_CHAT_URL,
+            LLM_CHAT_URL,
             json={
-                "model": "MiniMax-M2.7",  # 使用支持的模型
+                "model": LLM_CHAT_MODEL,  # 使用支持的模型
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
@@ -729,7 +728,7 @@ def modify_lyrics():
                 "max_tokens": 200
             },
             headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
             timeout=30,

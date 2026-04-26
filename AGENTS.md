@@ -37,24 +37,24 @@ cd frontend && npm run lint                    # ESLint 检查
 
 | 路由 | 文件 | 功能 |
 |------|------|------|
-| `/api/music/*` | `routes/music.py` | 歌词生成、Music generation via mmx CLI |
+| `/api/music/*` | `routes/music.py` | 歌词生成、MiniMax 音乐生成 API |
 | `/api/novel/*` | `routes/novel.py` | 小说项目 CRUD、大纲/章节生成 |
 | `/api/workflows/*` | `routes/workflow.py` | 工作流 CRUD 和执行 |
 | `/api/music/export/*` | `routes/export.py` | 网易云音乐导出 |
 
-## MiniMax 集成
+## LLM API 集成
 
-- **歌词**: 直接调用 `https://api.minimaxi.chat/v1/text/chatcompletion_v2`，使用 `MINIMAX_API_KEY`
-- **音乐**: 使用 `mmx` CLI (`mmx music generate --lyrics ... --out ...`)
-- 两者都需要有效的 MiniMax API key 才能在生产环境工作
+- **歌词**: 调用 `LLM_TEXT_URL`，使用 `LLM_API_KEY`
+- **音乐**: 使用 `LLM_MUSIC_URL` 生成音乐 (HTTP)
+- 两者都需要有效的 API key 才能在生产环境工作
 
-**注意**: 如果未设置 API key，歌词生成会使用内置的 mock 数据。
+**注意**: 如果未设置 API key，会使用内置的 mock 数据。
 
-## MiniMax API 配置
+## LLM API 配置
 
 在 `backend/.env` 文件中设置：
 ```
-MINIMAX_API_KEY=your_api_key_here
+LLM_API_KEY=your_api_key_here
 PORT=3001
 HOST=0.0.0.0
 ```

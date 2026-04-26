@@ -12,9 +12,9 @@ from database import (
 
 novel_bp = Blueprint("novel", __name__)
 
-# MiniMax API 配置
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-MINIMAX_API_URL = "https://api.minimaxi.com/v1/text/chatcompletion_v2"
+# LLM API 配置
+from config import LLM_API_KEY, LLM_TEXT_URL
+LLM_MODEL = "MiniMax-Text-01"
 
 # 内存存储（仅用于缓存，已迁移到数据库）
 projects = {}
@@ -25,8 +25,8 @@ projects = {}
 
 def generate_with_llm(prompt, system_prompt=""):
     """调用 MiniMax LLM API 生成内容"""
-    if not MINIMAX_API_KEY:
-        raise ValueError("未配置 MiniMax API Key，请在 .env 文件中设置 MINIMAX_API_KEY")
+    if not LLM_API_KEY:
+        raise ValueError("未配置 LLM_API_KEY，请在 .env 文件中设置 LLM_API_KEY")
     
     messages = []
     if system_prompt:
@@ -35,7 +35,7 @@ def generate_with_llm(prompt, system_prompt=""):
     
     try:
         response = requests.post(
-            MINIMAX_API_URL,
+            LLM_TEXT_URL,
             json={
                 "model": "MiniMax-Text-01",
                 "messages": messages,
@@ -43,7 +43,7 @@ def generate_with_llm(prompt, system_prompt=""):
                 "temperature": 0.7
             },
             headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
             timeout=120,
@@ -51,7 +51,7 @@ def generate_with_llm(prompt, system_prompt=""):
         
         data = response.json()
         if data.get("base_resp", {}).get("status_code") != 0:
-            raise ValueError(f"MiniMax API error: {data.get('base_resp', {}).get('status_msg', 'Unknown error')}")
+            raise ValueError(f"LLM API error: {data.get('base_resp', {}).get('status_msg', 'Unknown error')}")
         
         content = data.get("choices", [{}])[0].get("messages", [{}])[0].get("text", "")
         if not content:

@@ -82,7 +82,7 @@ npm run dev
 请在 `backend/.env` 文件中配置 MiniMax API key：
 
 ```
-MINIMAX_API_KEY=your_api_key_here
+LLM_API_KEY=your_api_key_here
 ```
 
 ## 项目结构

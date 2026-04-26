@@ -2,8 +2,6 @@ import os
 import uuid
 import json
 import requests
-import subprocess
-import shutil
 import time
 import threading
 import re
@@ -16,15 +14,10 @@ from database import (
     update_workflow, delete_workflow, get_connection
 )
 
+# 导入配置
+from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_MUSIC_MODEL
+
 workflow_bp = Blueprint("workflow", __name__)
-
-# MiniMax API 配置
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-MINIMAX_CHAT_URL = "https://api.minimaxi.com/v1/chat/completions"
-MINIMAX_LYRICS_URL = "https://api.minimaxi.com/v1/lyrics_generation"
-
-# 检查 mmx CLI 是否可用
-MMX_AVAILABLE = bool(shutil.which("mmx"))
 
 # 执行任务状态存储
 execution_jobs = {}
@@ -131,7 +124,7 @@ def execute_llm_node(node, input_data, node_outputs):
         # 没有 prompt 模板，直接使用上游数据
         actual_prompt = input_data or '请生成一些内容'
 
-    if not MINIMAX_API_KEY:
+    if not LLM_API_KEY:
         # Mock 模式
         mock_output = f"[Mock LLM Response] 处理输入: {actual_prompt[:100]}..."
         node_outputs[node['id']] = mock_output
@@ -144,7 +137,7 @@ def execute_llm_node(node, input_data, node_outputs):
 
     try:
         response = requests.post(
-            MINIMAX_CHAT_URL,
+            LLM_CHAT_URL,
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": actual_prompt}],
@@ -152,7 +145,7 @@ def execute_llm_node(node, input_data, node_outputs):
                 "max_tokens": 2000
             },
             headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json"
             },
             timeout=60
@@ -206,7 +199,7 @@ def execute_llm_node(node, input_data, node_outputs):
 
 def execute_music_node(node, input_data, node_outputs, execution_id):
     """
-    执行音乐节点：调用 MiniMax 音乐生成 API 或 mmx CLI
+    执行音乐节点：调用 MiniMax 音乐生成 API
     """
     config = node.get('config', {})
     style = config.get('style', '流行')
@@ -223,7 +216,7 @@ def execute_music_node(node, input_data, node_outputs, execution_id):
             'error': '缺少歌词内容'
         }
 
-    if not MINIMAX_API_KEY or not MMX_AVAILABLE:
+    if not LLM_API_KEY:
         # Mock 模式
         mock_output = f"[Mock Music] 歌词: {lyrics[:100]}... | 风格: {style}"
         node_outputs[node['id']] = mock_output
@@ -239,56 +232,58 @@ def execute_music_node(node, input_data, node_outputs, execution_id):
         safe_name = sanitize_filename(node.get('label', 'workflow_music'))
         output_file = os.path.join(uploads_dir, f"{safe_name}_{execution_id[:8]}.mp3")
 
-        # 构建命令
-        def escape_shell_arg(s):
-            return s.replace('\\', '\\\\').replace('"', '\\"').replace("'", "'") \
-                    .replace("\n", "\\n").replace("$", "\\$").replace("`", "\\`")
+        # 调用 MiniMax 音乐生成 HTTP API
+        headers = {
+            "Authorization": f"Bearer {LLM_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": LLM_MUSIC_MODEL,
+            "prompt": style,
+            "lyrics": lyrics
+        }
 
-        escaped_lyrics = escape_shell_arg(lyrics)
-        escaped_style = escape_shell_arg(style)
-        escaped_output = escape_shell_arg(output_file)
+        response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, timeout=300)
+        result = response.json()
 
-        command = f'mmx music generate --lyrics "{escaped_lyrics}" --prompt "{escaped_style}" --out "{escaped_output}" --quiet --non-interactive'
-
-        # 执行命令
-        proc = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-        stdout, stderr = proc.communicate(timeout=300)
-
-        if proc.returncode != 0:
+        # 检查业务错误
+        base_resp = result.get("base_resp", {})
+        if base_resp.get("status_code") != 0:
+            error_msg = base_resp.get("status_msg", "音乐生成失败")
             return {
                 'nodeId': node['id'],
                 'nodeName': node.get('label', '音乐'),
                 'status': 'error',
-                'error': stderr or '音乐生成失败'
+                'error': error_msg
             }
 
-        if os.path.exists(output_file):
-            audio_url = f"/api/music/download/{os.path.basename(output_file)}"
-            node_outputs[node['id']] = audio_url
+        # 获取音频数据
+        data = result.get("data", {})
+        audio_hex = data.get("audio")
+        if not audio_hex:
             return {
                 'nodeId': node['id'],
                 'nodeName': node.get('label', '音乐'),
-                'status': 'success',
-                'output': f'音乐生成成功: {audio_url}',
-                'audioUrl': audio_url
+                'status': 'error',
+                'error': '未获取到音频数据'
             }
 
+        # music-2.6 返回十六进制字符串，转换为字节并保存
+        audio_bytes = bytes.fromhex(audio_hex)
+        with open(output_file, "wb") as f:
+            f.write(audio_bytes)
+
+        audio_url = f"/api/music/download/{os.path.basename(output_file)}"
+        node_outputs[node['id']] = audio_url
         return {
             'nodeId': node['id'],
             'nodeName': node.get('label', '音乐'),
-            'status': 'error',
-            'error': '生成完成但未找到输出文件'
+            'status': 'success',
+            'output': f'音乐生成成功: {audio_url}',
+            'audioUrl': audio_url
         }
 
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    except requests.exceptions.Timeout:
         return {
             'nodeId': node['id'],
             'nodeName': node.get('label', '音乐'),

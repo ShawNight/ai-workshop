@@ -18,7 +18,7 @@ export const musicApi = {
   getHistory: () => api.get('/music/history'),
   deleteHistory: (id) => api.delete(`/music/history/${id}`),
   exportForNetEase: (data) => api.post('/music/export/netease', data, { responseType: 'blob' }),
-  checkMmx: () => api.get('/music/mmx-check'),
+  checkMusicApi: () => api.get('/music/check'),
   generateLrc: (data) => api.post('/music/lrc', data)
 };
 
