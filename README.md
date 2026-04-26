@@ -43,15 +43,23 @@ cd frontend
 npm install
 ```
 
-2. 安装后端依赖：
+2. 创建并激活 Python 虚拟环境，安装后端依赖：
 ```bash
 cd backend
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+```
+
+3. 复制环境变量文件（如需调用 API）：
+```bash
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，填入你的 LLM_API_KEY
 ```
 
 ### 开发
 
-使用项目管理脚本 `run.sh` 方便启动/停止服务：
+使用项目管理脚本 `run.sh` 方便启动/停止服务（会自动使用虚拟环境）：
 
 ```bash
 ./run.sh start     # 启动所有服务（后端 + 前端）
@@ -60,11 +68,12 @@ pip install -r requirements.txt
 ./run.sh status    # 查看服务状态
 ```
 
-或手动启动（分两个终端）：
+或手动启动（分两个终端，需先激活虚拟环境）：
 
 1. 启动后端服务：
 ```bash
 cd backend
+source .venv/bin/activate   # 激活虚拟环境
 python app.py
 ```
 后端运行在 http://localhost:3001

@@ -18,11 +18,15 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM EXIT
 
+VENV_PYTHON="$BACKEND_DIR/.venv/bin/python3"
+if [ ! -f "$VENV_PYTHON" ]; then
+    VENV_PYTHON="$BACKEND_DIR/.venv/bin/python"
+fi
+
 start_backend() {
     echo "启动后端服务..."
     cd "$BACKEND_DIR"
-    pip install -r requirements.txt -q
-    python3 app.py &
+    "$VENV_PYTHON" app.py &
     echo $! > "$BACKEND_PID_FILE"
     echo "后端服务已启动 (PID: $(cat "$BACKEND_PID_FILE"))"
 }
