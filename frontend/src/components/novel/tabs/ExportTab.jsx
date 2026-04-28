@@ -52,14 +52,17 @@ export function ExportTab() {
         lines.push('');
       }
 
-      if (options.includeOutline && outline.length > 0) {
-        lines.push('【故事大纲】');
-        lines.push('');
-        outline.forEach((item) => {
-          lines.push(`  ${item.title}`);
-          lines.push(`  ${item.description}`);
+      if (options.includeOutline) {
+        const chaptersWithDesc = chapters.filter((ch) => (ch.description || '').trim());
+        if (chaptersWithDesc.length > 0) {
+          lines.push('【故事大纲】');
           lines.push('');
-        });
+          chaptersWithDesc.forEach((ch) => {
+            lines.push(`  ${ch.title}`);
+            lines.push(`  ${ch.description}`);
+            lines.push('');
+          });
+        }
         lines.push('═'.repeat(50));
         lines.push('');
       }
@@ -124,15 +127,18 @@ export function ExportTab() {
         lines.push('');
       }
 
-      if (options.includeOutline && outline.length > 0) {
-        lines.push('## 故事大纲');
-        lines.push('');
-        outline.forEach((item) => {
-          lines.push(`### ${item.title}`);
+      if (options.includeOutline) {
+        const chaptersWithDesc = chapters.filter((ch) => (ch.description || '').trim());
+        if (chaptersWithDesc.length > 0) {
+          lines.push('## 故事大纲');
           lines.push('');
-          lines.push(item.description);
-          lines.push('');
-        });
+          chaptersWithDesc.forEach((ch) => {
+            lines.push(`### ${ch.title}`);
+            lines.push('');
+            lines.push(ch.description);
+            lines.push('');
+          });
+        }
       }
 
       chapters.forEach((ch) => {

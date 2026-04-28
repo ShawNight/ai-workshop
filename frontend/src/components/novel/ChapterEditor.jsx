@@ -5,8 +5,9 @@ import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
 import { Bold, Italic, Heading, Undo, Redo, Sparkles, Wand2, Lightbulb } from 'lucide-react';
 import { Button } from '../ui/Button';
+import { toast } from '../ui/Toast';
 
-export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue, onBrainstorm, isGenerating }) {
+export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue, onBrainstorm, isGenerating, activeAction }) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -27,7 +28,7 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm dark:prose-invert max-w-none h-full focus:outline-none p-6',
+        class: 'prose prose-sm dark:prose-invert max-w-none focus:outline-none p-6',
       },
     },
   }, []);
@@ -63,14 +64,14 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
         contextAfter: editor.state.doc.textBetween(to, Math.min(editor.state.doc.content.size, to + 100)),
       });
     } else {
-      action?.();
+      toast.warning('请先选中要改写的文字');
     }
   }, [editor]);
 
   if (!editor) return null;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--background)]">
         <div className="flex items-center gap-1">
           <button
@@ -121,6 +122,8 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
             variant="ghost"
             onClick={() => onBrainstorm?.()}
             title="头脑风暴"
+            disabled={!!activeAction || isGenerating}
+            loading={activeAction === 'brainstorm'}
           >
             <Lightbulb className="h-3.5 w-3.5 mr-1" />
             灵感
@@ -131,6 +134,8 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
             variant="ghost"
             onClick={() => handleSelectionAction(onContinue)}
             title="改写选中文字"
+            disabled={!!activeAction || isGenerating}
+            loading={activeAction === 'rewrite'}
           >
             <Wand2 className="h-3.5 w-3.5 mr-1" />
             改写
@@ -141,6 +146,8 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
             variant="ghost"
             onClick={() => onContinue?.()}
             title="续写"
+            disabled={!!activeAction || isGenerating}
+            loading={activeAction === 'continue'}
           >
             <Sparkles className="h-3.5 w-3.5 mr-1" />
             续写
@@ -159,8 +166,8 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <EditorContent editor={editor} className="min-h-full" />
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <EditorContent editor={editor} className="h-full" />
       </div>
     </div>
   );

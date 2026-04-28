@@ -133,7 +133,7 @@ export function NovelEditorPage() {
         genre: currentProject.genre,
         previousContent: prevContent,
         writingStyle: currentProject.writingStyle,
-        chapterDescription: (currentProject.outline || [])[prevIdx]?.description || '',
+        chapterDescription: chapter.description || '',
         characters: currentProject.characters || [],
         relationships: currentProject.relationships || [],
         locations: currentProject.locations || [],
@@ -241,13 +241,13 @@ export function NovelEditorPage() {
         onSave={performSave}
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-h-0">
         <EditorSidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {activeTab === 'outline' && (
             editingChapter ? (
-              <div className="flex flex-col flex-1">
+              <div className="flex flex-col flex-1 min-h-0">
                 <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)]">
                   <button
                     onClick={() => setEditingChapterId(null)}
@@ -283,39 +283,7 @@ export function NovelEditorPage() {
                 />
               </div>
             ) : (
-              <div className="flex flex-col flex-1 overflow-hidden">
-                <OutlineTab />
-                <div className="px-6 pb-4 border-t border-[var(--border)] pt-3">
-                  {(currentProject?.chapters || []).length > 0 && (
-                    <div className="space-y-0.5">
-                      <p className="text-xs text-[var(--text-secondary)] mb-2">点击章节标题进入编辑</p>
-                      {(currentProject.chapters || []).map((ch) => (
-                        <button
-                          key={ch.id}
-                          onClick={() => setEditingChapterId(ch.id)}
-                          className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-[var(--background)] transition-colors flex items-center justify-between group"
-                        >
-                          <span>{ch.title}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-[var(--text-secondary)]">
-                              {(ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length > 0
-                                ? `${(ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length} 字`
-                                : '空'}
-                            </span>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); navigate(`/novel/${projectId}/write/${ch.id}`); }}
-                              className="p-1 rounded hover:bg-[var(--surface)] opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="全屏写作"
-                            >
-                              <Maximize2 className="h-3 w-3 text-[var(--text-secondary)]" />
-                            </button>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <OutlineTab />
             )
           )}
           {activeTab === 'characters' && <CharacterTab />}

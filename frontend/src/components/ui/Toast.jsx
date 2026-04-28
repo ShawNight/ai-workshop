@@ -28,10 +28,10 @@ const icons = {
 };
 
 const colors = {
-  success: 'bg-green-500',
-  error: 'bg-red-500',
-  warning: 'bg-yellow-500',
-  info: 'bg-blue-500'
+  success: 'bg-green-600',
+  error: 'bg-red-600',
+  warning: 'bg-yellow-600',
+  info: 'bg-blue-600'
 };
 
 export function ToastContainer() {
@@ -46,7 +46,7 @@ export function ToastContainer() {
             key={toast.id}
             className={cn(
               'flex items-center gap-3 rounded-lg px-4 py-3 text-white shadow-lg',
-              'animate-in slide-in-from-right-full duration-300',
+              'transition-all duration-300 ease-out',
               colors[toast.type] || colors.info
             )}
           >

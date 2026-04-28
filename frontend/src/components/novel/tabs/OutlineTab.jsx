@@ -1,18 +1,42 @@
 import { useState } from 'react';
-import { Plus, Sparkles, ChevronRight, ChevronDown } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Sparkles, ChevronRight, ChevronDown, Maximize2, Trash2 } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { toast } from '../../ui/Toast';
 import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
-import { OutlineNode, createNewNode } from '../OutlineNode';
+
+function generateId() {
+  return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+function mergeOutlineToChapters(existingChapters, newOutline) {
+  const result = existingChapters.map((c, i) => {
+    if (i < newOutline.length) {
+      return { ...c, title: newOutline[i].title, description: newOutline[i].description || '' };
+    }
+    return c;
+  });
+  for (let i = result.length; i < newOutline.length; i++) {
+    result.push({
+      id: generateId(),
+      title: newOutline[i].title,
+      content: '',
+      status: 'draft',
+      order: i,
+      description: newOutline[i].description || '',
+    });
+  }
+  return result;
+}
 
 export function OutlineTab() {
-  const { currentProject, updateProject, setIsGeneratingOutline, isGeneratingOutline } = useNovelStore();
+  const navigate = useNavigate();
+  const { currentProject, updateProject, setIsGeneratingOutline, isGeneratingOutline, setEditingChapterId } = useNovelStore();
   const [expanded, setExpanded] = useState({});
 
   if (!currentProject) return null;
 
-  const outline = currentProject.outline || [];
   const chapters = currentProject.chapters || [];
 
   const handleGenerateOutline = async () => {
@@ -24,9 +48,11 @@ export function OutlineTab() {
         synopsis: currentProject.synopsis || '',
       });
       if (res.data.success) {
-        updateProject(currentProject.id, { outline: res.data.outline });
+        const newOutline = res.data.outline;
+        const mergedChapters = mergeOutlineToChapters(chapters, newOutline);
+        updateProject(currentProject.id, { outline: newOutline, chapters: mergedChapters });
         if (res.data.mock) toast.info(res.data.message);
-        else toast.success('大纲生成成功');
+        else toast.success(`大纲生成成功，已更新 ${newOutline.length} 个章节`);
       } else {
         toast.error(res.data.error || '生成失败');
       }
@@ -38,33 +64,15 @@ export function OutlineTab() {
   };
 
   const handleAddChapter = () => {
-    // 如果已生成大纲，优先使用大纲对应序号的标题
-    const nextIdx = chapters.length;
-    const outlineTitle = outline[nextIdx]?.title;
     const newChapter = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
-      title: outlineTitle || `第${chapters.length + 1}章`,
+      id: generateId(),
+      title: `第${chapters.length + 1}章`,
       content: '',
       status: 'draft',
       order: chapters.length,
+      description: '',
     };
     updateProject(currentProject.id, { chapters: [...chapters, newChapter] });
-  };
-
-  const handleImportFromOutline = () => {
-    if (outline.length === 0) {
-      toast.info('请先生成大纲');
-      return;
-    }
-    const newChapters = outline.map((item, idx) => ({
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
-      title: item.title,
-      content: '',
-      status: 'draft',
-      order: idx,
-    }));
-    updateProject(currentProject.id, { chapters: [...chapters, ...newChapters] });
-    toast.success(`已从大纲导入 ${newChapters.length} 个章节`);
   };
 
   const handleDeleteChapter = (chapterId) => {
@@ -79,14 +87,14 @@ export function OutlineTab() {
     });
   };
 
-  const toggleExpand = (idx) => {
-    setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  const toggleExpand = (chapterId) => {
+    setExpanded((prev) => ({ ...prev, [chapterId]: !prev[chapterId] }));
   };
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">故事大纲</h2>
+        <h2 className="text-lg font-semibold">章节大纲</h2>
         <div className="flex gap-2">
           <Button size="sm" onClick={handleAddChapter}>
             <Plus className="h-4 w-4" />
@@ -105,100 +113,85 @@ export function OutlineTab() {
         </div>
       </div>
 
-      <div className="space-y-6">
-        <div>
-          <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">
-            AI 生成的章节纲要
-          </h3>
-          {outline.length > 0 ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-[var(--text-secondary)]">{outline.length} 章大纲</span>
-                <Button size="sm" variant="ghost" onClick={handleImportFromOutline}>
-                  <Plus className="h-3 w-3 mr-1" />
-                  一键导入为章节
-                </Button>
-              </div>
-              {outline.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 rounded-lg border border-[var(--border)] hover:border-[var(--primary)]/30 transition-colors cursor-pointer"
-                  onClick={() => toggleExpand(idx)}
-                >
-                  <div className="flex items-center gap-2">
-                    {expanded[idx] ? <ChevronDown className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" /> : <ChevronRight className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />}
-                    <div className="flex-1">
-                      <span className="font-medium text-sm">{item.title}</span>
-                    </div>
-                    {item.wordCount && <span className="text-xs text-[var(--text-secondary)]">{item.wordCount}字</span>}
-                  </div>
-                  {expanded[idx] && (
-                    <div className="mt-2 ml-6">
-                      <p className="text-sm text-[var(--text-secondary)]">{item.description}</p>
-                      {item.subChapters && item.subChapters.length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          {item.subChapters.map((sub, si) => (
-                            <div key={si} className="flex items-center gap-2 text-xs text-[var(--text-secondary)] pl-2 border-l-2 border-[var(--border)]">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]/30" />
-                              {sub.title || sub}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 border-2 border-dashed border-[var(--border)] rounded-xl">
-              <Sparkles className="h-8 w-8 mx-auto mb-2 text-[var(--text-secondary)] opacity-50" />
-              <p className="text-sm text-[var(--text-secondary)]">点击「AI 生成大纲」自动生成故事结构</p>
-              <p className="text-xs text-[var(--text-secondary)] mt-1">或手动在下方添加章节</p>
-            </div>
-          )}
-        </div>
+      {chapters.length > 0 ? (
+        <div className="space-y-1">
+          {chapters.map((chapter, idx) => {
+            const isExpanded = expanded[chapter.id];
+            const wordCount = (chapter.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length;
+            const hasDescription = !!(chapter.description || '').trim();
 
-        <div>
-          <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">
-            章节列表 ({chapters.length})
-          </h3>
-          {chapters.length > 0 ? (
-            <div className="space-y-1">
-              {chapters.map((chapter, idx) => (
+            return (
+              <div
+                key={chapter.id}
+                className="rounded-lg border border-[var(--border)] hover:border-[var(--primary)]/30 transition-colors"
+              >
                 <div
-                  key={chapter.id}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[var(--background)] transition-colors group"
+                  className="flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+                  onClick={() => toggleExpand(chapter.id)}
                 >
+                  <button className="p-0.5 flex-shrink-0" onClick={(e) => { e.stopPropagation(); toggleExpand(chapter.id); }}>
+                    {hasDescription
+                      ? (isExpanded ? <ChevronDown className="h-4 w-4 text-[var(--text-secondary)]" /> : <ChevronRight className="h-4 w-4 text-[var(--text-secondary)]" />)
+                      : <span className="w-4" />
+                    }
+                  </button>
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-500/10 text-blue-500 flex-shrink-0">
                     章
                   </span>
-                  <span className="flex-1 text-sm truncate">
+                  <span
+                    className="flex-1 text-sm font-medium truncate"
+                    onClick={(e) => { e.stopPropagation(); setEditingChapterId(chapter.id); }}
+                    role="button"
+                    title="点击编辑章节"
+                  >
                     {chapter.title || `第${idx + 1}章`}
                   </span>
-                  <span className="text-[10px] text-[var(--text-secondary)]">
-                    {(chapter.content || '').replace(/\s/g, '').length > 0
-                      ? `${(chapter.content || '').replace(/\s/g, '').length} 字`
-                      : ''}
-                  </span>
-                  <button
-                    onClick={() => handleDeleteChapter(chapter.id)}
-                    className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                  {wordCount > 0 && (
+                    <span className="text-xs text-[var(--text-secondary)] flex-shrink-0">
+                      {wordCount} 字
+                    </span>
+                  )}
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    style={{ opacity: 1 }}
                   >
-                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                    </svg>
-                  </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/novel/${currentProject.id}/write/${chapter.id}`); }}
+                      className="p-1 rounded hover:bg-[var(--surface)] text-[var(--text-secondary)]"
+                      title="全屏写作"
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteChapter(chapter.id); }}
+                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+                      title="删除"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-6 border-2 border-dashed border-[var(--border)] rounded-xl">
-              <p className="text-sm text-[var(--text-secondary)]">点击上方按钮添加章节</p>
-            </div>
-          )}
+                {isExpanded && hasDescription && (
+                  <div className="px-3 pb-2.5 ml-6">
+                    <textarea
+                      value={chapter.description || ''}
+                      onChange={(e) => handleUpdateChapter(chapter.id, { description: e.target.value })}
+                      className="w-full text-sm text-[var(--text-secondary)] bg-transparent border border-[var(--border)] rounded-md p-2 resize-none focus:outline-none focus:border-[var(--primary)]/50"
+                      rows={2}
+                      placeholder="添加写作指导..."
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      </div>
+      ) : (
+        <div className="text-center py-8 border-2 border-dashed border-[var(--border)] rounded-xl">
+          <Sparkles className="h-8 w-8 mx-auto mb-2 text-[var(--text-secondary)] opacity-50" />
+          <p className="text-sm text-[var(--text-secondary)]">点击「AI 生成大纲」自动生成故事结构</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">或手动添加章节</p>
+        </div>
+      )}
     </div>
   );
 }

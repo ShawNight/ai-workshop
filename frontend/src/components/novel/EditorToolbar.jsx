@@ -1,5 +1,4 @@
 import { ArrowLeft, Save, Check, AlertCircle } from 'lucide-react';
-import { Button } from '../ui/Button';
 
 export function EditorToolbar({ project, saveStatus, wordCount, onBack, onSave }) {
   return (
@@ -39,15 +38,17 @@ export function EditorToolbar({ project, saveStatus, wordCount, onBack, onSave }
         </div>
       </div>
 
-      <Button
-        size="sm"
-        variant="outline"
+      <button
         onClick={onSave}
-        disabled={saveStatus === 'saved' || saveStatus === 'saving'}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+          saveStatus === 'unsaved' || saveStatus === 'error'
+            ? 'bg-[var(--primary)] text-white hover:opacity-90'
+            : 'bg-[var(--background)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+        } ${saveStatus === 'saving' ? 'opacity-50 pointer-events-none' : ''}`}
       >
         <Save className="h-4 w-4" />
         保存
-      </Button>
+      </button>
     </div>
   );
 }
