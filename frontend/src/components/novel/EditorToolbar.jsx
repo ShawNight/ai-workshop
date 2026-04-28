@@ -1,6 +1,9 @@
-import { ArrowLeft, Save, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { formatSaveTime } from '../../utils/formatSaveTime';
 
-export function EditorToolbar({ project, saveStatus, wordCount, onBack, onSave }) {
+export function EditorToolbar({ project, saveStatus, lastSavedAt, wordCount, onBack, onSave }) {
+  const savedLabel = lastSavedAt ? `已保存 · ${formatSaveTime(lastSavedAt)}` : '已保存';
+
   return (
     <div className="flex items-center justify-between p-4 bg-[var(--surface)] border-b border-[var(--border)] sticky top-0 z-20">
       <div className="flex items-center gap-3">
@@ -15,22 +18,22 @@ export function EditorToolbar({ project, saveStatus, wordCount, onBack, onSave }
           <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
             {saveStatus === 'saved' && (
               <span className="flex items-center gap-1 text-green-600">
-                <Check className="h-3 w-3" /> 已保存
+                <Check className="h-3 w-3" /> {savedLabel}
               </span>
             )}
             {saveStatus === 'saving' && (
               <span className="flex items-center gap-1 text-[var(--primary)]">
-                <Save className="h-3 w-3 animate-pulse" /> 保存中...
+                <Loader2 className="h-3 w-3 animate-spin" /> 保存中...
               </span>
             )}
             {saveStatus === 'unsaved' && (
               <span className="flex items-center gap-1 text-amber-500">
-                <AlertCircle className="h-3 w-3" /> 未保存
+                <AlertCircle className="h-3 w-3" /> 有未保存的更改
               </span>
             )}
             {saveStatus === 'error' && (
               <span className="flex items-center gap-1 text-red-500">
-                <AlertCircle className="h-3 w-3" /> 保存失败
+                <AlertCircle className="h-3 w-3" /> 保存失败 · 点击重试
               </span>
             )}
             {wordCount > 0 && <span>· {wordCount.toLocaleString()} 字</span>}
@@ -40,11 +43,12 @@ export function EditorToolbar({ project, saveStatus, wordCount, onBack, onSave }
 
       <button
         onClick={onSave}
+        disabled={saveStatus === 'saving' || saveStatus === 'saved'}
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
           saveStatus === 'unsaved' || saveStatus === 'error'
             ? 'bg-[var(--primary)] text-white hover:opacity-90'
-            : 'bg-[var(--background)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-        } ${saveStatus === 'saving' ? 'opacity-50 pointer-events-none' : ''}`}
+            : 'bg-[var(--background)] text-[var(--text-tertiary)] cursor-default'
+        }`}
       >
         <Save className="h-4 w-4" />
         保存

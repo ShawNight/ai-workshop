@@ -10,6 +10,7 @@ export const useNovelStore = create(
       // Editor state (not persisted)
       activeTab: 'outline',
       saveStatus: 'saved',
+      lastSavedAt: null,
       editingChapterId: null,
       isEditorDirty: false,
 
@@ -27,6 +28,7 @@ export const useNovelStore = create(
         activeTab: 'outline',
         editingChapterId: null,
         saveStatus: 'saved',
+        lastSavedAt: null,
         isEditorDirty: false
       }),
 
@@ -51,6 +53,7 @@ export const useNovelStore = create(
         activeTab: 'outline',
         editingChapterId: null,
         saveStatus: 'saved',
+        lastSavedAt: null,
         isEditorDirty: false
       }),
 
@@ -64,7 +67,7 @@ export const useNovelStore = create(
 
       setEditorDirty: (dirty) => set({ isEditorDirty: dirty }),
 
-      markSaved: () => set({ saveStatus: 'saved', isEditorDirty: false }),
+      markSaved: () => set({ saveStatus: 'saved', lastSavedAt: Date.now(), isEditorDirty: false }),
 
       markSaving: () => set({ saveStatus: 'saving' }),
 

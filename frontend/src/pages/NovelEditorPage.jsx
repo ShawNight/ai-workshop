@@ -22,7 +22,7 @@ export function NovelEditorPage() {
   const {
     currentProject, setCurrentProject, clearCurrentProject,
     activeTab, setActiveTab, editingChapterId, setEditingChapterId,
-    saveStatus, markSaving, markSaved, markUnsaved, setSaveStatus,
+    saveStatus, lastSavedAt, markSaving, markSaved, markUnsaved, setSaveStatus,
     isGeneratingChapter, setIsGeneratingChapter,
     updateProject,
   } = useNovelStore();
@@ -236,6 +236,7 @@ export function NovelEditorPage() {
       <EditorToolbar
         project={currentProject}
         saveStatus={saveStatus}
+        lastSavedAt={lastSavedAt}
         wordCount={totalWords}
         onBack={handleBack}
         onSave={performSave}

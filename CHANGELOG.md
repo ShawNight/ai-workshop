@@ -9,12 +9,17 @@
 ## [Unreleased]
 
 ### 新增
+- **大纲章节生成改进** — 移除单独的"添加章节"按钮，合并到"AI 生成大纲"功能中；支持设置生成章节数量（默认8）；已有章节时点击可追加新章节（AI 参考已有大纲续写）；章节标题支持双击编辑 (`frontend/src/components/novel/tabs/OutlineTab.jsx`)
+- **大纲生成接口增强** — `/novel/generate-outline` 新增 `chapterCount` 和 `existingChapters` 参数，支持指定章节数量和基于已有大纲续写；LLM prompt 动态调整；Mock 数据扩充至 8 章 (`backend/routes/novel.py`)
+- **保存状态时间显示** — 保存成功后显示相对时间（"已保存 · 刚刚"、"已保存 · 3分钟前"等）；保存中状态改用旋转加载图标；新增 `formatSaveTime` 工具函数 (`frontend/src/utils/formatSaveTime.js`)
+- **大纲自动保存** — 大纲生成/追加、删除章节、编辑章节标题和描述后自动保存到后端（2秒防抖）
 - **LRC 歌词同步功能** — 新增后端 `/music/lrc` 接口，调用 MiniMax M2.7 模型根据歌词和音频时长生成 LRC 格式时间戳歌词 (`backend/routes/music.py`)
 - **LRC 解析与双模式播放** — `LyricsSyncViewer` 组件支持 LRC 格式解析（`parseLRC`），优先使用 LRC 精确时间戳同步，无 LRC 时自动回退到估算模式 (`frontend/src/components/music/LyricsSyncViewer.jsx`)
 - **LRC 自动获取** — `MusicPlayer` 在获取到音频时长后自动请求 LRC 生成，无需手动触发 (`frontend/src/components/music/MusicPlayer.jsx`)
 - **前端 API 方法** — `musicApi.generateLrc()` 新增 (`frontend/src/api/index.js`)
 
 ### 优化
+- **保存状态提示改进** — 编辑器和写作页面的保存状态文案优化：「未保存」→「有未保存的更改」，「保存失败」→「保存失败 · 点击重试」；已保存状态下保存按钮置灰禁用 (`frontend/src/components/novel/EditorToolbar.jsx`, `frontend/src/pages/ChapterWritePage.jsx`)
 - **歌词提示词生成改进** — 为 MiniMax Chat API 增加 system 角色消息，明确要求直接输出 JSON、禁止输出思考过程；`max_tokens` 从 300 提升到 1024 (`backend/routes/music.py`)
 - **歌词同步显示标识** — LRC 模式下播放状态显示"同步播放"而非"正在播放" (`frontend/src/components/music/LyricsSyncViewer.jsx`)
 - **.gitignore 完善** — 重新组织分类，新增前端构建输出、IDE 配置、OS 文件、Claude Code 本地设置等忽略规则

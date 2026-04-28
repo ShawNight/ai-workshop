@@ -23,7 +23,9 @@ MOCK_OUTLINE = [
     {"title": "第三章：初次考验", "description": "主角遭遇第一次重大挫折或战斗，暴露出自身不足，但在困境中展现出潜力。"},
     {"title": "第四章：转折之路", "description": "故事迎来关键转折，主角获得重要信息或力量，但代价是失去或牺牲某些东西。"},
     {"title": "第五章：至暗时刻", "description": "矛盾全面爆发，主角面临最大的危机和内心挣扎，似乎一切都在走向毁灭。"},
-    {"title": "第六章：破晓新生", "description": "主角突破自我极限，解决核心冲突，故事走向结局，但同时为可能的续篇留下空间。"},
+    {"title": "第六章：绝地反击", "description": "在最黑暗的时刻，主角找到突破口，联合盟友发起关键反击，扭转局势。"},
+    {"title": "第七章：真相大白", "description": "隐藏的真相浮出水面，主角发现一切并非表面所见，最终敌人露出真面目。"},
+    {"title": "第八章：破晓新生", "description": "主角突破自我极限，解决核心冲突，故事走向结局，但同时为可能的续篇留下空间。"},
 ]
 
 MOCK_CHAPTER = """夜色如墨，星辰稀疏地挂在天空。
@@ -270,20 +272,52 @@ def generate_outline():
     premise = data.get("premise", "")
     genre = data.get("genre", "通用")
     synopsis = data.get("synopsis", "")
+    chapter_count = data.get("chapterCount", 8)
+    existing_chapters = data.get("existingChapters", [])
+
+    try:
+        chapter_count = int(chapter_count)
+        if chapter_count < 1:
+            chapter_count = 8
+    except (ValueError, TypeError):
+        chapter_count = 8
 
     if not premise:
         return jsonify({"success": False, "error": "请提供故事前提/背景"}), 400
 
-    system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
-你的任务是生成一个逻辑严密、节奏紧凑的故事大纲，包含 6-8 个章节。
-每个章节需要有明确的核心冲突和情感弧线，章节之间需要有因果递进关系。
-输出必须是严格的 JSON 数组格式。"""
+    has_existing = isinstance(existing_chapters, list) and len(existing_chapters) > 0
 
-    user_prompt = f"""类型：{genre}
+    if has_existing:
+        existing_summary = "\n".join(
+            f"- {ch.get('title', '')}：{ch.get('description', '')}"
+            for ch in existing_chapters
+        )
+        system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
+你的任务是基于已有的故事大纲，续写追加新的章节。保持与已有章节的叙事连贯和因果递进。
+输出必须是严格的 JSON 数组格式，只包含新增的章节。"""
+        user_prompt = f"""类型：{genre}
 故事前提：{premise}
 {synopsis and f'故事简介：{synopsis}' or ''}
 
-请生成一个包含6-8章的故事大纲，每章包含：
+已有章节大纲：
+{existing_summary}
+
+请继续这个故事，追加{chapter_count}个新章节，每章包含：
+- title: 章节标题（含章节序号，从第{len(existing_chapters) + 1}章开始）
+- description: 章节概要（50-100字，包含核心情节和冲突）
+
+只返回 JSON 数组，格式如：
+[{{"title": "第{len(existing_chapters) + 1}章：xxxx", "description": "..."}}, ...]"""
+    else:
+        system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
+你的任务是生成一个逻辑严密、节奏紧凑的故事大纲，包含 {chapter_count} 个章节。
+每个章节需要有明确的核心冲突和情感弧线，章节之间需要有因果递进关系。
+输出必须是严格的 JSON 数组格式。"""
+        user_prompt = f"""类型：{genre}
+故事前提：{premise}
+{synopsis and f'故事简介：{synopsis}' or ''}
+
+请生成一个包含{chapter_count}章的故事大纲，每章包含：
 - title: 章节标题（含章节序号，如"第一章：xxxx"）
 - description: 章节概要（50-100字，包含核心情节和冲突）
 
@@ -293,15 +327,20 @@ def generate_outline():
     try:
         result = generate_with_llm(user_prompt, system_prompt)
 
+        mock_data = MOCK_OUTLINE if not has_existing else [
+            {"title": f"第{len(existing_chapters) + i + 1}章：新篇章", "description": f"第{len(existing_chapters) + i + 1}章的精彩内容，故事继续展开。"}
+            for i in range(chapter_count)
+        ]
+
         if result is None:
-            return jsonify({"success": True, "outline": MOCK_OUTLINE,
+            return jsonify({"success": True, "outline": mock_data[:chapter_count] if not has_existing else mock_data,
                            "mock": True, "message": "未配置 API Key，返回示例大纲"})
 
         outline = parse_json_from_response(result, r'\[.*\]')
         if outline and isinstance(outline, list):
             return jsonify({"success": True, "outline": outline})
         else:
-            return jsonify({"success": True, "outline": MOCK_OUTLINE,
+            return jsonify({"success": True, "outline": mock_data[:chapter_count] if not has_existing else mock_data,
                            "mock": True, "message": "AI 返回格式异常，使用示例大纲"})
 
     except ValueError as e:

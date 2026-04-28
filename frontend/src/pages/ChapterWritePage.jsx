@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Check, AlertCircle, Maximize2, Minimize2, History } from 'lucide-react';
+import { ArrowLeft, Save, Check, AlertCircle, Loader2, Maximize2, Minimize2, History } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
+import { formatSaveTime } from '../utils/formatSaveTime';
 
 export function ChapterWritePage() {
   const { projectId, chapterId } = useParams();
@@ -14,7 +15,7 @@ export function ChapterWritePage() {
   const {
     currentProject, setCurrentProject, updateProject,
     isGeneratingChapter, setIsGeneratingChapter,
-    saveStatus, markSaving, markSaved, markUnsaved, setSaveStatus,
+    saveStatus, lastSavedAt, markSaving, markSaved, markUnsaved, setSaveStatus,
   } = useNovelStore();
 
   const autoSaveTimer = useRef(null);
@@ -42,6 +43,8 @@ export function ChapterWritePage() {
       navigate('/novel');
     }
   };
+
+  const savedLabel = lastSavedAt ? `已保存 · ${formatSaveTime(lastSavedAt)}` : '已保存';
 
   const chapter = currentProject?.chapters?.find((c) => c.id === chapterId);
 
@@ -226,22 +229,22 @@ export function ChapterWritePage() {
               <span>·</span>
               {saveStatus === 'saved' && (
                 <span className="flex items-center gap-1 text-green-600">
-                  <Check className="h-3 w-3" /> 已保存
+                  <Check className="h-3 w-3" /> {savedLabel}
                 </span>
               )}
               {saveStatus === 'saving' && (
                 <span className="flex items-center gap-1 text-[var(--primary)]">
-                  <Save className="h-3 w-3 animate-pulse" /> 保存中...
+                  <Loader2 className="h-3 w-3 animate-spin" /> 保存中...
                 </span>
               )}
               {saveStatus === 'unsaved' && (
                 <span className="flex items-center gap-1 text-amber-500">
-                  <AlertCircle className="h-3 w-3" /> 未保存
+                  <AlertCircle className="h-3 w-3" /> 有未保存的更改
                 </span>
               )}
               {saveStatus === 'error' && (
                 <span className="flex items-center gap-1 text-red-500">
-                  <AlertCircle className="h-3 w-3" /> 保存失败
+                  <AlertCircle className="h-3 w-3" /> 保存失败 · 点击重试
                 </span>
               )}
             </div>
@@ -250,11 +253,12 @@ export function ChapterWritePage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => performSave()}
+            disabled={saveStatus === 'saving' || saveStatus === 'saved'}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
               saveStatus === 'unsaved' || saveStatus === 'error'
                 ? 'bg-[var(--primary)] text-white hover:opacity-90'
-                : 'bg-[var(--background)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            } ${saveStatus === 'saving' ? 'opacity-50 pointer-events-none' : ''}`}
+                : 'bg-[var(--background)] text-[var(--text-tertiary)] cursor-default'
+            }`}
             title="保存"
           >
             <Save className="h-4 w-4" />
