@@ -23,6 +23,16 @@ if [ ! -f "$VENV_PYTHON" ]; then
     VENV_PYTHON="$BACKEND_DIR/.venv/bin/python"
 fi
 
+setup_backend_venv() {
+    if [ ! -f "$VENV_PYTHON" ]; then
+        echo "后端虚拟环境不存在，正在创建..."
+        cd "$BACKEND_DIR"
+        python3 -m venv .venv
+        .venv/bin/pip install -r requirements.txt
+        echo "虚拟环境创建完成"
+    fi
+}
+
 start_backend() {
     echo "启动后端服务..."
     cd "$BACKEND_DIR"
@@ -51,6 +61,7 @@ status_services() {
 
 case "${1:-start}" in
     start)
+        setup_backend_venv
         start_backend
         sleep 1
         start_frontend
