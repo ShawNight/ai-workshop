@@ -15,7 +15,7 @@ from database import (
 )
 
 # 导入配置
-from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_MUSIC_MODEL
+from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_MUSIC_MODEL, get_proxies
 
 workflow_bp = Blueprint("workflow", __name__)
 
@@ -148,6 +148,7 @@ def execute_llm_node(node, input_data, node_outputs):
                 "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json"
             },
+            proxies=get_proxies(),
             timeout=60
         )
 
@@ -243,7 +244,7 @@ def execute_music_node(node, input_data, node_outputs, execution_id):
             "lyrics": lyrics
         }
 
-        response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, timeout=300)
+        response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, proxies=get_proxies(), timeout=300)
         result = response.json()
 
         # 检查业务错误

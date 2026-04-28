@@ -13,7 +13,7 @@ from database import (
 
 novel_bp = Blueprint("novel", __name__)
 
-from config import LLM_API_KEY, LLM_CHAT_URL, LLM_CHAT_MODEL
+from config import LLM_API_KEY, LLM_CHAT_URL, LLM_CHAT_MODEL, get_proxies
 
 # ==================== LLM 调用 ====================
 
@@ -70,6 +70,7 @@ def generate_with_llm(prompt, system_prompt=""):
                 "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
+            proxies=get_proxies(),
             timeout=120,
         )
 

@@ -10,7 +10,7 @@ from flask import Blueprint, request, jsonify, send_file
 import requests
 from datetime import datetime
 from database import get_connection
-from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_LYRICS_MODEL, LLM_CHAT_MODEL, LLM_MUSIC_MODEL
+from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_LYRICS_MODEL, LLM_CHAT_MODEL, LLM_MUSIC_MODEL, get_proxies
 
 music_bp = Blueprint("music", __name__)
 
@@ -78,6 +78,7 @@ def generate_song_title_with_llm(theme, mood, genre, lyrics_preview):
                 "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
+            proxies=get_proxies(),
             timeout=30,
         )
 
@@ -164,6 +165,7 @@ def generate_lyrics_with_llm(prompt_text):
                 "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
+            proxies=get_proxies(),
             timeout=60,
         )
 
@@ -243,6 +245,7 @@ def generate_prompt():
                 "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
+            proxies=get_proxies(),
             timeout=30,
         )
 
@@ -392,7 +395,8 @@ def generate_music():
                 "lyrics": lyrics
             }
 
-            response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, timeout=300)
+            response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, proxies=get_proxies(),
+            timeout=300)
             result = response.json()
 
             # 检查业务错误
@@ -543,7 +547,8 @@ def check_music_api():
             "Authorization": f"Bearer {LLM_API_KEY}",
             "Content-Type": "application/json"
         }
-        response = requests.post(LLM_MUSIC_URL, headers=headers, json={}, timeout=10)
+        response = requests.post(LLM_MUSIC_URL, headers=headers, json={}, proxies=get_proxies(),
+        timeout=10)
         # 只要有响应（即使是参数错误 4xx），说明 API 可达
         if response.status_code < 500:
             return jsonify({
@@ -638,6 +643,7 @@ def generate_lrc():
                 "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
+            proxies=get_proxies(),
             timeout=30,
         )
 
@@ -731,6 +737,7 @@ def modify_lyrics():
                 "Authorization": f"Bearer {LLM_API_KEY}",
                 "Content-Type": "application/json",
             },
+            proxies=get_proxies(),
             timeout=30,
         )
 

@@ -28,6 +28,20 @@ LLM_MUSIC_MODEL = os.getenv("LLM_MUSIC_MODEL", "music-2.6")
 PORT = int(os.getenv("PORT", "3001"))
 HOST = os.getenv("HOST", "0.0.0.0")
 
+# 代理配置
+HTTP_PROXY = os.getenv("HTTP_PROXY", "")
+HTTPS_PROXY = os.getenv("HTTPS_PROXY", "")
+
+
+def get_proxies():
+    """获取代理配置，未配置时返回空字典（直连）"""
+    proxies = {}
+    if HTTP_PROXY:
+        proxies["http"] = HTTP_PROXY
+    if HTTPS_PROXY:
+        proxies["https"] = HTTPS_PROXY
+    return proxies
+
 
 def get_model_config(provider=None):
     """获取指定 provider 的配置，provider=None 时使用默认 provider"""
