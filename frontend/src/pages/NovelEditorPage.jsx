@@ -177,7 +177,9 @@ export function NovelEditorPage() {
         if (res.data.success) {
           const before = (chapter.content || '').substring(0, selection.from);
           const after = (chapter.content || '').substring(selection.to);
-          const newContent = before + `<p>${res.data.content}</p>` + after;
+          // 将 \n\n 转换为段落分隔，单个 \n 用 <br> 保留换行
+          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
+          const newContent = before + `<p>${formatted}</p>` + after;
           handleChapterContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('改写完成');
@@ -195,7 +197,9 @@ export function NovelEditorPage() {
           outline: currentProject.outline || [],
         });
         if (res.data.success) {
-          const newContent = (chapter.content || '') + `<p>${res.data.content.replace(/\n\n/g, '</p><p>')}</p>`;
+          // 将 \n\n 转换为段落分隔，单个 \n 用 <br> 保留换行
+          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
+          const newContent = (chapter.content || '') + `<p>${formatted}</p>`;
           handleChapterContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('续写完成');

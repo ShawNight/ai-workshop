@@ -165,7 +165,9 @@ export function ChapterWritePage() {
           const content = chapter.content || '';
           const before = content.substring(0, selection.from);
           const after = content.substring(selection.to);
-          const newContent = before + `<p>${res.data.content.replace(/\n/g, '</p><p>')}</p>` + after;
+          // 将 \n\n 转换为段落分隔，空段落产生的多余空行
+          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
+          const newContent = before + `<p>${formatted}</p>` + after;
           handleContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('改写完成');
@@ -183,7 +185,9 @@ export function ChapterWritePage() {
           outline: currentProject.outline || [],
         });
         if (res.data.success) {
-          const newContent = (chapter.content || '') + `<p>${res.data.content.replace(/\n/g, '</p><p>')}</p>`;
+          // 将 \n\n 转换为段落分隔，空段落产生的多余空行
+          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
+          const newContent = (chapter.content || '') + `<p>${formatted}</p>`;
           handleContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('续写完成');
