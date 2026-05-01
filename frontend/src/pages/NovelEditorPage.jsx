@@ -4,6 +4,7 @@ import { BookOpen, Maximize2, History } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
+import { useSave } from '../hooks/useSave';
 import { EditorToolbar } from '../components/novel/EditorToolbar';
 import { EditorSidebar } from '../components/novel/EditorSidebar';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
@@ -22,12 +23,16 @@ export function NovelEditorPage() {
   const {
     currentProject, setCurrentProject, clearCurrentProject,
     activeTab, setActiveTab, editingChapterId, setEditingChapterId,
-    saveStatus, lastSavedAt, markSaving, markSaved, markUnsaved, setSaveStatus,
+    saveStatus, lastSavedAt, markUnsaved,
     isGeneratingChapter, setIsGeneratingChapter,
     updateProject,
   } = useNovelStore();
+  const { save } = useSave();
 
-  const autoSaveTimer = useRef(null);
+  const handleBack = useCallback(() => {
+    navigate('/novel');
+  }, [navigate]);
+
   const [showBrainstorm, setShowBrainstorm] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
 
@@ -35,9 +40,19 @@ export function NovelEditorPage() {
     loadProject();
     return () => {
       clearCurrentProject();
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     };
   }, [projectId]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (useNovelStore.getState().isEditorDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const loadProject = async () => {
     try {
@@ -54,66 +69,30 @@ export function NovelEditorPage() {
     }
   };
 
-  const debouncedSave = useCallback(() => {
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    markUnsaved();
-    autoSaveTimer.current = setTimeout(() => {
-      performSave();
-    }, 2000);
-  }, [currentProject]);
-
-  const performSave = async () => {
-    if (!currentProject || saveStatus === 'saving') return;
-    markSaving();
-    try {
-      const res = await novelApi.updateProject(currentProject.id, {
-        title: currentProject.title,
-        genre: currentProject.genre,
-        premise: currentProject.premise,
-        synopsis: currentProject.synopsis,
-        writingStyle: currentProject.writingStyle,
-        coverColor: currentProject.coverColor,
-        status: currentProject.status,
-        targetWordCount: currentProject.targetWordCount,
-        currentWordCount: currentProject.currentWordCount,
-        outline: currentProject.outline,
-        chapters: currentProject.chapters,
-        characters: currentProject.characters,
-        locations: currentProject.locations,
-        relationships: currentProject.relationships,
-        settings: currentProject.settings,
-      });
-      if (res.data.success) {
-        markSaved();
-        // Also save draft for currently editing chapter
-        if (editingChapterId) {
-          const ch = (currentProject.chapters || []).find((c) => c.id === editingChapterId);
-          if (ch?.content) {
-            novelApi.saveDraft(currentProject.id, editingChapterId, {
-              content: ch.content,
-              wordCount: (ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length,
-            }).catch(() => {});
-          }
+const performSave = useCallback(async () => {
+    const ok = await save();
+    if (ok) {
+      const proj = useNovelStore.getState().currentProject;
+      if (editingChapterId) {
+        const ch = (proj?.chapters || []).find((c) => c.id === editingChapterId);
+        if (ch?.content) {
+          novelApi.saveDraft(proj.id, editingChapterId, {
+            content: ch.content,
+            wordCount: (ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length,
+          }).catch(() => {});
         }
       }
-    } catch {
-      setSaveStatus('error');
     }
-  };
+  }, [editingChapterId, save]);
 
-  const handleBack = () => {
-    clearCurrentProject();
-    navigate('/novel');
-  };
-
-  const handleChapterContentChange = ({ html, text }) => {
+  const handleChapterContentChange = useCallback(({ html }) => {
     if (!currentProject || !editingChapterId) return;
     const chapters = (currentProject.chapters || []).map((c) =>
       c.id === editingChapterId ? { ...c, content: html } : c
     );
     updateProject(currentProject.id, { chapters });
-    debouncedSave();
-  };
+    markUnsaved();
+  }, [currentProject, editingChapterId, updateProject, markUnsaved]);
 
   const handleGenerateChapter = async () => {
     if (!currentProject || !editingChapterId) return;
@@ -148,7 +127,7 @@ export function NovelEditorPage() {
         updateProject(currentProject.id, { chapters });
         if (res.data.mock) toast.info(res.data.message);
         else toast.success('章节生成成功');
-        debouncedSave();
+        markUnsaved();
       }
     } catch {
       toast.error('章节生成失败');

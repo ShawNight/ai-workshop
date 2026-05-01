@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Plus, Trash2, MapPin, Globe, Building2, Trees, Mountain, Landmark, X, ChevronRight, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, MapPin, Globe, Building2, Trees, Mountain, Landmark, X, ChevronRight, ChevronDown, Sparkles } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { Input, Textarea, Label } from '../../ui/Input';
 import { toast } from '../../ui/Toast';
 import { useNovelStore } from '../../../store/novelStore';
+import { ChatPanel } from '../chat/ChatPanel';
 
 const locationTypes = [
   { value: 'city', label: '城市', icon: Building2 },
@@ -15,12 +16,16 @@ const locationTypes = [
 ];
 
 export function WorldTab() {
-  const { currentProject, updateProject } = useNovelStore();
+  const { currentProject, updateProject, markUnsaved } = useNovelStore();
   const [isCreating, setIsCreating] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [newLocation, setNewLocation] = useState({
     name: '', type: 'city', description: '', significance: '',
   });
+
+  // AI 对话状态
+  const [selectedLocId, setSelectedLocId] = useState(null);
+  const [showChat, setShowChat] = useState(false);
 
   if (!currentProject) return null;
 
@@ -40,6 +45,7 @@ export function WorldTab() {
       createdAt: new Date().toISOString(),
     };
     updateProject(currentProject.id, { locations: [...locations, loc] });
+    markUnsaved();
     toast.success('地点已添加');
     setNewLocation({ name: '', type: 'city', description: '', significance: '' });
     setIsCreating(false);
@@ -49,13 +55,61 @@ export function WorldTab() {
     updateProject(currentProject.id, {
       locations: locations.filter((l) => l.id !== id),
     });
+    markUnsaved();
     toast.success('地点已删除');
+  };
+
+  // AI 建议采纳处理
+  const handleApplySuggestion = (suggestion) => {
+    const locations = currentProject.locations || [];
+
+    switch (suggestion.type) {
+      case 'update_location': {
+        const updated = locations.map(l =>
+          l.id === suggestion.targetId
+            ? { ...l, [suggestion.field]: suggestion.value }
+            : l
+        );
+        updateProject(currentProject.id, { locations: updated });
+        toast.success('地点设定已更新');
+        break;
+      }
+      case 'add_location_detail': {
+        const updated = locations.map(l =>
+          l.id === suggestion.targetId
+            ? { ...l, [suggestion.field]: (l[suggestion.field] || '') + suggestion.value }
+            : l
+        );
+        updateProject(currentProject.id, { locations: updated });
+        toast.success('细节已补充');
+        break;
+      }
+      case 'create_location': {
+        const newLoc = {
+          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          ...suggestion.value,
+        };
+        updateProject(currentProject.id, { locations: [...locations, newLoc] });
+        toast.success(`已创建地点「${suggestion.value.name}」`);
+        break;
+      }
+      default:
+        toast.info('此建议类型暂不支持自动采纳');
+    }
+    markUnsaved();
+  };
+
+  const openChat = (locId) => {
+    setSelectedLocId(locId);
+    setShowChat(true);
   };
 
   const typeInfo = (type) => locationTypes.find((t) => t.value === type) || locationTypes[5];
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-hidden flex">
+      {/* 左侧：地点列表 */}
+      <div className={`flex-1 overflow-y-auto p-6 transition-all ${showChat ? 'max-w-[55%]' : ''}`}>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold">世界观 · 地点 ({locations.length})</h2>
         <Button size="sm" onClick={() => setIsCreating(true)}>
@@ -143,6 +197,13 @@ export function WorldTab() {
                   </div>
                   <div className="flex items-center gap-1">
                     <button
+                      onClick={(e) => { e.stopPropagation(); openChat(loc.id); }}
+                      className="p-1 rounded hover:bg-[var(--primary)]/10 text-[var(--primary)]"
+                      title="AI 深入探讨此地点"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(loc.id); }}
                       className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
                     >
@@ -173,6 +234,19 @@ export function WorldTab() {
           <Globe className="h-10 w-10 mx-auto mb-3 text-[var(--text-secondary)] opacity-50" />
           <p className="text-sm text-[var(--text-secondary)]">还没有世界观地点</p>
           <p className="text-xs text-[var(--text-secondary)] mt-1">添加故事中的重要地点</p>
+        </div>
+      )}
+      </div>
+
+      {/* 右侧：AI 对话面板 */}
+      {showChat && selectedLocId && (
+        <div className="flex-1 border-l border-[var(--border)] min-w-0">
+          <ChatPanel
+            mode="world"
+            entityId={selectedLocId}
+            onApplySuggestion={handleApplySuggestion}
+            onClose={() => { setShowChat(false); setSelectedLocId(null); }}
+          />
         </div>
       )}
     </div>

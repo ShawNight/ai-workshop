@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Sparkles, User, ChevronRight, ChevronDown, GitBranch } from 'lucide-react';
+import { Plus, Trash2, Sparkles, User, ChevronRight, ChevronDown, GitBranch, X } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { Input, Textarea, Label } from '../../ui/Input';
 import { Select } from '../../ui/Select';
@@ -8,11 +8,12 @@ import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
 import { RelationshipGraph } from '../RelationshipGraph';
 import { RelationshipEditor } from '../RelationshipEditor';
+import { ChatPanel } from '../chat/ChatPanel';
 
 const characterRoles = ['主角', '配角', '反派', '导师', '盟友', '恋人', '路人'];
 
 export function CharacterTab() {
-  const { currentProject, updateProject, setIsGeneratingCharacter, isGeneratingCharacter } = useNovelStore();
+  const { currentProject, updateProject, setIsGeneratingCharacter, isGeneratingCharacter, markUnsaved } = useNovelStore();
   const [isCreating, setIsCreating] = useState(false);
   const [isCreatingAI, setIsCreatingAI] = useState(false);
   const [newName, setNewName] = useState('');
@@ -21,6 +22,10 @@ export function CharacterTab() {
   const [expanded, setExpanded] = useState({});
   const [viewMode, setViewMode] = useState('list');
   const [showRelationshipEditor, setShowRelationshipEditor] = useState(false);
+
+  // AI 对话状态
+  const [selectedCharId, setSelectedCharId] = useState(null);
+  const [showChat, setShowChat] = useState(false);
 
   if (!currentProject) return null;
 
@@ -44,6 +49,7 @@ export function CharacterTab() {
         updateProject(currentProject.id, {
           characters: [...characters, res.data.character],
         });
+        markUnsaved();
         if (res.data.mock) toast.info('已创建角色（使用示例性格特征）');
         else toast.success('角色创建成功');
         setNewName('');
@@ -65,6 +71,7 @@ export function CharacterTab() {
       characters: characters.filter((c) => c.id !== charId),
       relationships: relationships.filter((r) => r.fromId !== charId && r.toId !== charId),
     });
+    markUnsaved();
     toast.success('角色已删除（含关联关系）');
   };
 
@@ -72,6 +79,7 @@ export function CharacterTab() {
     updateProject(currentProject.id, {
       relationships: [...relationships, rel],
     });
+    markUnsaved();
     toast.success('关系已添加');
     setShowRelationshipEditor(false);
   };
@@ -80,40 +88,99 @@ export function CharacterTab() {
     updateProject(currentProject.id, {
       relationships: relationships.filter((r) => r.id !== relId),
     });
+    markUnsaved();
   };
 
   const toggleExpand = (charId) => {
     setExpanded((prev) => ({ ...prev, [charId]: !prev[charId] }));
   };
 
-  return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="flex items-center justify-between p-6 pb-0">
-        <h2 className="text-lg font-semibold">角色管理 ({characters.length})</h2>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-[var(--border)] overflow-hidden">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 text-xs ${viewMode === 'list' ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'text-[var(--text-secondary)]'}`}
-            >
-              列表
-            </button>
-            <button
-              onClick={() => setViewMode('graph')}
-              className={`px-3 py-1.5 text-xs ${viewMode === 'graph' ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'text-[var(--text-secondary)]'}`}
-            >
-              <GitBranch className="h-3 w-3 inline mr-0.5" />
-              关系图
-            </button>
-          </div>
-          <Button size="sm" onClick={() => setIsCreating(true)}>
-            <Plus className="h-4 w-4" />
-            添加角色
-          </Button>
-        </div>
-      </div>
+  // AI 建议采纳处理
+  const handleApplySuggestion = (suggestion) => {
+    const projectCharacters = currentProject.characters || [];
+    const projectRelationships = currentProject.relationships || [];
 
-      {isCreating && (
+    switch (suggestion.type) {
+      case 'update_character': {
+        const updated = projectCharacters.map(c =>
+          c.id === suggestion.targetId
+            ? { ...c, [suggestion.field]: suggestion.value }
+            : c
+        );
+        updateProject(currentProject.id, { characters: updated });
+        toast.success('角色设定已更新');
+        break;
+      }
+      case 'add_trait': {
+        const updated = projectCharacters.map(c =>
+          c.id === suggestion.targetId
+            ? { ...c, traits: [...(c.traits || []), suggestion.value] }
+            : c
+        );
+        updateProject(currentProject.id, { characters: updated });
+        toast.success(`已添加特征「${suggestion.value}」`);
+        break;
+      }
+      case 'create_relationship': {
+        const newRel = {
+          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          ...suggestion.value,
+        };
+        updateProject(currentProject.id, { relationships: [...projectRelationships, newRel] });
+        toast.success('关系已建立');
+        break;
+      }
+      case 'create_character': {
+        const newChar = {
+          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          ...suggestion.value,
+          traits: suggestion.value.traits || [],
+        };
+        updateProject(currentProject.id, { characters: [...projectCharacters, newChar] });
+        toast.success(`已创建角色「${suggestion.value.name}」`);
+        break;
+      }
+      default:
+        toast.info('此建议类型暂不支持自动采纳');
+    }
+    markUnsaved();
+  };
+
+  const openChat = (charId) => {
+    setSelectedCharId(charId);
+    setShowChat(true);
+  };
+
+  return (
+    <div className="flex-1 overflow-hidden flex">
+      {/* 左侧：角色列表 */}
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden transition-all ${showChat ? 'max-w-[55%]' : ''}`}>
+        <div className="flex items-center justify-between p-6 pb-0">
+          <h2 className="text-lg font-semibold">角色管理 ({characters.length})</h2>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-[var(--border)] overflow-hidden">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-3 py-1.5 text-xs ${viewMode === 'list' ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'text-[var(--text-secondary)]'}`}
+              >
+                列表
+              </button>
+              <button
+                onClick={() => setViewMode('graph')}
+                className={`px-3 py-1.5 text-xs ${viewMode === 'graph' ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'text-[var(--text-secondary)]'}`}
+              >
+                <GitBranch className="h-3 w-3 inline mr-0.5" />
+                关系图
+              </button>
+            </div>
+            <Button size="sm" onClick={() => setIsCreating(true)}>
+              <Plus className="h-4 w-4" />
+              添加角色
+            </Button>
+          </div>
+        </div>
+
+        {isCreating && (
         <div className="mx-6 mt-4 p-4 rounded-xl border-2 border-[var(--primary)]/30 bg-[var(--background)]">
           <h3 className="font-medium mb-3">新建角色</h3>
           <div className="space-y-3">
@@ -216,6 +283,13 @@ export function CharacterTab() {
                           </span>
                         ))}
                         <button
+                          onClick={(e) => { e.stopPropagation(); openChat(character.id); }}
+                          className="p-1 rounded hover:bg-[var(--primary)]/10 text-[var(--primary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="AI 深入探讨此角色"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </button>
+                        <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteCharacter(character.id); }}
                           className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
@@ -261,6 +335,19 @@ export function CharacterTab() {
           </div>
         )}
       </div>
+      </div>
+
+      {/* 右侧：AI 对话面板 */}
+      {showChat && selectedCharId && (
+        <div className="flex-1 border-l border-[var(--border)] min-w-0">
+          <ChatPanel
+            mode="character"
+            entityId={selectedCharId}
+            onApplySuggestion={handleApplySuggestion}
+            onClose={() => { setShowChat(false); setSelectedCharId(null); }}
+          />
+        </div>
+      )}
     </div>
   );
 }

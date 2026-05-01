@@ -34,6 +34,7 @@ export const novelApi = {
   continueChapter: (data) => api.post('/novel/continue-chapter', data),
   rewriteText: (data) => api.post('/novel/rewrite', data),
   brainstorm: (data) => api.post('/novel/brainstorm', data),
+  chat: (data) => api.post('/novel/chat', data),
   getStats: (projectId) => api.get(`/novel/projects/${projectId}/stats`),
   saveDraft: (projectId, chapterId, data) => api.post(`/novel/projects/${projectId}/drafts/${chapterId}`, data),
   getDrafts: (projectId, chapterId) => api.get(`/novel/projects/${projectId}/drafts/${chapterId}`),

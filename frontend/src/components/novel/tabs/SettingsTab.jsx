@@ -3,6 +3,7 @@ import { Input, Textarea, Label } from '../../ui/Input';
 import { Select } from '../../ui/Select';
 import { toast } from '../../ui/Toast';
 import { useNovelStore } from '../../../store/novelStore';
+import { useSave } from '../../../hooks/useSave';
 import { Save, BookOpen } from 'lucide-react';
 
 const genres = ['玄幻', '都市', '科幻', '悬疑', '言情', '武侠', '奇幻', '历史', '游戏', '轻小说'];
@@ -18,16 +19,20 @@ const coverColors = [
 ];
 
 export function SettingsTab() {
-  const { currentProject, updateProject } = useNovelStore();
+  const { currentProject, updateProject, markUnsaved } = useNovelStore();
+  const { save } = useSave();
 
   if (!currentProject) return null;
 
   const handleUpdate = (field, value) => {
     updateProject(currentProject.id, { [field]: value });
+    markUnsaved();
   };
 
-  const handleSave = () => {
-    toast.success('设定已保存');
+  const handleSave = async () => {
+    const ok = await save();
+    if (ok) toast.success('设定已保存');
+    else toast.error('保存失败');
   };
 
   return (

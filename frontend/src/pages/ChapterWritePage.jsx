@@ -4,6 +4,7 @@ import { ArrowLeft, Save, Check, AlertCircle, Loader2, Maximize2, Minimize2, His
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
+import { useSave } from '../hooks/useSave';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
@@ -15,21 +16,30 @@ export function ChapterWritePage() {
   const {
     currentProject, setCurrentProject, updateProject,
     isGeneratingChapter, setIsGeneratingChapter,
-    saveStatus, lastSavedAt, markSaving, markSaved, markUnsaved, setSaveStatus,
+    saveStatus, lastSavedAt, markUnsaved,
   } = useNovelStore();
+  const { save } = useSave();
 
   const autoSaveTimer = useRef(null);
   const [isFocusMode, setIsFocusMode] = useState(false);
-  const [activeAction, setActiveAction] = useState(null); // 'brainstorm' | 'rewrite' | 'continue' | 'generate' | null
+  const [activeAction, setActiveAction] = useState(null);
   const [showBrainstorm, setShowBrainstorm] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
 
   useEffect(() => {
     loadProject();
-    return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    };
   }, [projectId]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (useNovelStore.getState().isEditorDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const loadProject = async () => {
     try {
@@ -49,60 +59,27 @@ export function ChapterWritePage() {
   const chapter = currentProject?.chapters?.find((c) => c.id === chapterId);
 
   const performSave = useCallback(async () => {
-    if (!currentProject || saveStatus === 'saving') return;
-    markSaving();
-    try {
-      const res = await novelApi.updateProject(currentProject.id, {
-        title: currentProject.title,
-        genre: currentProject.genre,
-        premise: currentProject.premise,
-        synopsis: currentProject.synopsis,
-        writingStyle: currentProject.writingStyle,
-        coverColor: currentProject.coverColor,
-        status: currentProject.status,
-        targetWordCount: currentProject.targetWordCount,
-        currentWordCount: currentProject.currentWordCount,
-        outline: currentProject.outline,
-        chapters: currentProject.chapters,
-        characters: currentProject.characters,
-        locations: currentProject.locations,
-        relationships: currentProject.relationships,
-        settings: currentProject.settings,
-      });
-      if (res.data.success) {
-        markSaved();
-        // Also save draft for current chapter
-        if (chapterId) {
-          const ch = (currentProject.chapters || []).find((c) => c.id === chapterId);
-          if (ch?.content) {
-            novelApi.saveDraft(currentProject.id, chapterId, {
-              content: ch.content,
-              wordCount: (ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length,
-            }).catch(() => {});
-          }
-        }
+    const ok = await save();
+    if (ok && chapterId) {
+      const proj = useNovelStore.getState().currentProject;
+      const ch = (proj?.chapters || []).find((c) => c.id === chapterId);
+      if (ch?.content) {
+        novelApi.saveDraft(proj.id, chapterId, {
+          content: ch.content,
+          wordCount: (ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length,
+        }).catch(() => {});
       }
-    } catch {
-      setSaveStatus('error');
     }
-  }, [currentProject, chapterId, saveStatus]);
+  }, [chapterId, save]);
 
-  const debouncedSave = useCallback(() => {
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    markUnsaved();
-    autoSaveTimer.current = setTimeout(() => {
-      performSave();
-    }, 3000);
-  }, [performSave]);
-
-  const handleContentChange = useCallback(({ html, text }) => {
+  const handleContentChange = useCallback(({ html }) => {
     if (!currentProject || !chapterId) return;
     const chapters = (currentProject.chapters || []).map((c) =>
       c.id === chapterId ? { ...c, content: html } : c
     );
     updateProject(currentProject.id, { chapters });
-    debouncedSave();
-  }, [currentProject, chapterId, debouncedSave]);
+    markUnsaved();
+  }, [currentProject, chapterId, updateProject, markUnsaved]);
 
   const handleGenerate = async () => {
     if (!currentProject || !chapter) return;
@@ -132,7 +109,7 @@ export function ChapterWritePage() {
         updateProject(currentProject.id, { chapters });
         if (res.data.mock) toast.info(res.data.message);
         else toast.success('章节生成成功');
-        debouncedSave();
+        markUnsaved();
       }
     } catch {
       toast.error('章节生成失败');
@@ -248,7 +225,7 @@ export function ChapterWritePage() {
               )}
               {saveStatus === 'error' && (
                 <span className="flex items-center gap-1 text-red-500">
-                  <AlertCircle className="h-3 w-3" /> 保存失败 · 点击重试
+                  <AlertCircle className="h-3 w-3" /> 保存失败
                 </span>
               )}
             </div>
@@ -257,16 +234,20 @@ export function ChapterWritePage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => performSave()}
-            disabled={saveStatus === 'saving' || saveStatus === 'saved'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-              saveStatus === 'unsaved' || saveStatus === 'error'
-                ? 'bg-[var(--primary)] text-white hover:opacity-90'
-                : 'bg-[var(--background)] text-[var(--text-tertiary)] cursor-default'
+            disabled={saveStatus === 'saving'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              saveStatus === 'unsaved'
+                ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm'
+                : saveStatus === 'error'
+                ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
+                : saveStatus === 'saving'
+                ? 'bg-[var(--border)] text-[var(--text-secondary)] cursor-wait'
+                : 'bg-[var(--background)] text-[var(--text-secondary)] hover:bg-[var(--border)]'
             }`}
             title="保存"
           >
             <Save className="h-4 w-4" />
-            保存
+            {saveStatus === 'saving' ? '保存中...' : saveStatus === 'error' ? '重试保存' : '保存'}
           </button>
           <span className="w-px h-5 bg-[var(--border)]" />
           <button

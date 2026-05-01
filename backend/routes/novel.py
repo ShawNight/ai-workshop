@@ -49,15 +49,17 @@ MOCK_CHAPTER = """夜色如墨，星辰稀疏地挂在天空。
 但他们不再畏惧。"""
 
 
-def generate_with_llm(prompt, system_prompt=""):
-    """调用 LLM API 生成内容。成功返回文本，失败或无 API key 返回 None"""
+def generate_with_llm(prompt, system_prompt="", messages=None):
+    """调用 LLM API 生成内容。成功返回文本，失败或无 API key 返回 None。
+    当传入 messages 时，直接使用该消息列表（用于多轮对话场景）。"""
     if not LLM_API_KEY:
         return None
 
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
+    if messages is None:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
 
     try:
         response = requests.post(
@@ -556,6 +558,261 @@ def brainstorm():
         return jsonify({"success": False, "error": str(e)}), 500
     except Exception as e:
         return jsonify({"success": False, "error": f"头脑风暴失败: {str(e)}"}), 500
+
+
+# ==================== AI 对话探讨 ====================
+
+def build_chat_system_prompt(mode, entity_id, context):
+    """构建对话的系统提示词"""
+    genre = context.get("genre", "通用")
+    premise = context.get("premise", "")
+    characters = context.get("characters", [])
+    relationships = context.get("relationships", [])
+    locations = context.get("locations", [])
+    outline = context.get("outline", [])
+
+    # 基础上下文
+    story_context = build_story_context(characters, relationships, locations, outline if len(outline) <= 10 else [])
+
+    if mode == "character":
+        char = next((c for c in characters if c.get("id") == entity_id), None)
+        char_context = ""
+        if char:
+            char_name = char.get('name', '')
+            char_role = char.get('role', '未知定位')
+            traits = ", ".join(char.get("traits", []) or [])
+            appearance = char.get("appearance", "")
+            backstory = char.get("backstory", "")
+            char_desc = char.get('description', '暂无')
+            char_context = f"当前深入探讨的角色：{char_name}（{char_role}）\n- 性格特征：{traits or '尚未设定'}\n- 外貌：{appearance or '尚未设定'}\n- 背景：{backstory or '尚未设定'}\n- 角色描述：{char_desc}"
+
+        return f"""你是一位专业的小说角色分析师，专精于{genre}类型小说。
+
+你的任务是与用户深入探讨角色设定，帮助用户挖掘角色的深度、复杂性和内在逻辑。
+
+【你的能力】
+- 分析角色的核心动机、最深层渴望和恐惧
+- 发现角色性格中的矛盾和张力
+- 推断角色的成长弧线和变化轨迹
+- 设计角色与其他角色之间的动态关系
+- 补充和完善角色设定的细节
+
+【工作方式】
+1. 先理解用户的问题或话题
+2. 结合已有的角色设定进行深入分析
+3. 给出有洞察力的回答，适当引用角色设定中的具体内容作为依据
+4. 主动提供可操作的建议（见下方）
+
+【建议格式】
+在回复末尾，请以如下格式提供可采纳的建议（如有）：
+
+```suggestions
+[
+  {{"type": "update_character", "targetId": "角色ID", "field": "字段名", "value": "新值", "label": "更新description为..."}},
+  {{"type": "add_trait", "targetId": "角色ID", "value": "新特征", "label": "添加性格特征"}},
+  {{"type": "create_relationship", "value": {{"fromId": "A的ID", "toId": "B的ID", "type": "关系类型", "description": "关系描述"}}}},
+  {{"type": "create_character", "value": {{"name": "角色名", "role": "定位", "description": "描述", "traits": ["特征1", "特征2"]}}}},
+  {{"type": "ask_question", "value": "你觉得他会在面对...时怎么做？", "label": "追问"}}
+]
+```
+
+【当前项目信息】
+类型：{genre}
+前提：{premise or '未设定'}
+
+{story_context}
+
+【当前探讨角色】
+{char_context}
+
+请基于以上信息，与用户深入探讨角色设定。回答要有深度，适当引用角色已有设定，避免泛泛而谈。"""
+
+    elif mode == "world":
+        loc = next((l for l in locations if l.get("id") == entity_id), None)
+        loc_context = ""
+        if loc:
+            loc_name = loc.get('name', '')
+            loc_type = loc.get('type', '地点')
+            loc_desc = loc.get('description', '暂无')
+            loc_sig = loc.get('significance', '暂无')
+            loc_context = f"当前深入探讨的地点：{loc_name}（{loc_type}）\n- 描述：{loc_desc}\n- 剧情意义：{loc_sig}"
+
+        return f"""你是一位专业的小说世界观构建师，专精于{genre}类型。
+
+你的任务是与用户深入探讨世界观设定，帮助完善故事发生的世界。
+
+【你的能力】
+- 设计和丰富地点的历史、文化、社会结构
+- 发现世界观的逻辑漏洞或不一致
+- 建立各地点之间的地理、政治、文化关联
+- 补充世界规则的细节
+- 为地点设计独特的风土人情
+
+【工作方式】
+1. 理解用户想探讨的具体话题
+2. 结合已有的世界观设定进行延伸
+3. 给出有创意且合理的建议
+4. 主动提供可操作的建议
+
+【建议格式】
+在回复末尾，请以如下格式提供可采纳的建议（如有）：
+
+```suggestions
+[
+  {{"type": "update_location", "targetId": "地点ID", "field": "字段名", "value": "新值", "label": "更新description为..."}},
+  {{"type": "add_location_detail", "targetId": "地点ID", "field": "description", "value": "，补充描述...", "label": "补充细节"}},
+  {{"type": "create_location", "value": {{"name": "地点名", "type": "类型", "description": "描述", "significance": "剧情意义"}}}},
+  {{"type": "ask_question", "value": "这个地方的政权结构是怎样的？", "label": "追问"}}
+]
+```
+
+【当前项目信息】
+类型：{genre}
+前提：{premise or '未设定'}
+
+{story_context}
+
+【当前探讨地点】
+{loc_context}
+
+请基于以上信息，与用户深入探讨世界观设定。"""
+
+    elif mode == "character_relation":
+        char_map = {c.get("id"): c.get("name", "") for c in characters}
+        entity_rels = [r for r in relationships if r.get("fromId") == entity_id or r.get("toId") == entity_id]
+        rel_context = ""
+        if entity_rels:
+            rel_lines = []
+            for rel in entity_rels:
+                from_name = char_map.get(rel.get("fromId"), "?")
+                to_name = char_map.get(rel.get("toId"), "?")
+                rel_type = rel.get('type', '关联')
+                rel_desc = rel.get('description', '暂无')
+                rel_lines.append(f"- 从「{from_name}」到「{to_name}」（{rel_type}）：{rel_desc}")
+            rel_context = f"当前角色相关的所有关系：\n" + "\n".join(rel_lines)
+
+        return f"""你是一位专业的小说关系分析师。
+
+你的任务是与用户探讨角色之间的关系张力、动态变化和发展可能性。
+
+【你的能力】
+- 分析角色间关系的深层逻辑
+- 设计关系的转折点和冲突
+- 发现关系的潜在发展空间
+- 建议关系的发展方向
+
+【建议格式】
+```suggestions
+[
+  {{"type": "update_relationship", "targetId": "关系ID", "field": "字段名", "value": "新值", "label": "更新关系"}},
+  {{"type": "create_relationship", "value": {{"fromId": "A的ID", "toId": "B的ID", "type": "关系类型", "description": "关系描述"}}}},
+  {{"type": "ask_question", "value": "如果他们之间发生了...会怎样？", "label": "追问"}}
+]
+```
+
+{story_context}
+
+【当前关系】
+{rel_context}
+
+请与用户深入探讨角色间的关系。"""
+
+    # 默认
+    return f"""你是一位专业的小说创作顾问，专精于{genre}类型。
+
+【建议格式】
+```suggestions
+[
+  {{"type": "ask_question", "value": "...", "label": "追问"}}
+]
+```
+
+{story_context}
+
+请回答用户的问题，并在回复末尾提供可采纳的建议（如有）。"""
+
+
+def parse_chat_reply(text, mode, entity_id, characters):
+    """解析 AI 回复，分离正文和建议"""
+    suggestions = []
+    content = text
+
+    # 提取 ```suggestions ... ``` 块
+    sug_match = re.search(r'```suggestions\s*(.*?)```', text, re.DOTALL)
+    if sug_match:
+        try:
+            sug_list = json.loads(sug_match.group(1))
+            for sug in sug_list:
+                # 补充 targetId
+                if mode == "character" and entity_id and "targetId" not in sug and sug.get("type") != "create_character":
+                    sug["targetId"] = entity_id
+                if mode == "world" and entity_id and "targetId" not in sug and sug.get("type") != "create_location":
+                    sug["targetId"] = entity_id
+                # 处理 create_relationship 中的 toName → toId 转换
+                if sug.get("type") == "create_relationship" and "value" in sug:
+                    val = sug["value"]
+                    if "toName" in val and "toId" not in val:
+                        target_char = next((c for c in characters if c.get("name") == val["toName"]), None)
+                        if target_char:
+                            val["toId"] = target_char["id"]
+                            val["fromId"] = entity_id
+                            del val["toName"]
+                suggestions.append(sug)
+        except json.JSONDecodeError:
+            pass
+        # 从正文中移除 suggestions 块
+        content = text[:sug_match.start()] + text[sug_match.end():]
+
+    content = content.strip()
+    return content, suggestions
+
+
+@novel_bp.route("/chat", methods=["POST"])
+def chat():
+    """AI 对话探讨"""
+    data = request.get_json()
+    mode = data.get("mode", "character")
+    entity_id = data.get("entityId")
+    messages = data.get("messages", [])
+    context = data.get("context", {})
+    project_id = data.get("projectId")
+
+    if project_id:
+        project = get_novel_project(project_id)
+        if not project:
+            return jsonify({"success": False, "error": "项目不存在"}), 404
+
+    if not messages:
+        return jsonify({"success": False, "error": "请提供对话内容"}), 400
+
+    system_prompt = build_chat_system_prompt(mode, entity_id, context)
+
+    # 构建对话消息
+    chat_messages = [{"role": "system", "content": system_prompt}]
+    for msg in messages:
+        chat_messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+
+    try:
+        reply_text = generate_with_llm(prompt=None, messages=chat_messages)
+
+        if reply_text is None:
+            mock_reply = "（未配置 API Key，无法进行 AI 对话）你可以尝试手动完善这个角色的设定。"
+            return jsonify({
+                "success": True,
+                "reply": {"content": mock_reply, "suggestions": []},
+                "mock": True
+            })
+
+        content, suggestions = parse_chat_reply(reply_text, mode, entity_id, context.get("characters", []))
+        return jsonify({
+            "success": True,
+            "reply": {"content": content, "suggestions": suggestions}
+        })
+
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": f"对话失败: {str(e)}"}), 500
 
 
 @novel_bp.route("/character", methods=["POST"])

@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### 测试验证 (2025-04-30)
+- ✅ **AI 角色探讨功能** — 4 个快捷问题（核心动机、内心矛盾、成长弧线、关系发展）
+- ✅ **AI 世界观探讨功能** — 4 个快捷问题（历史完善、社会结构、地点关联、逻辑一致性）
+- ✅ **AI 建议采纳功能** — 按钮正确变为"已采纳"绿色状态
+- ✅ **保存按钮状态** — 琥珀色（有未保存）、灰色（已保存）
+- ✅ **beforeunload 提示** — 离开页面时正确触发确认对话框
+- ✅ **Bug 修复** — `NovelEditorPage.jsx` handleBack 函数缺失问题已修复
+
 ### 新增
 - **大纲章节生成改进** — 移除单独的"添加章节"按钮，合并到"AI 生成大纲"功能中；支持设置生成章节数量（默认8）；已有章节时点击可追加新章节（AI 参考已有大纲续写）；章节标题支持双击编辑 (`frontend/src/components/novel/tabs/OutlineTab.jsx`)
 - **大纲生成接口增强** — `/novel/generate-outline` 新增 `chapterCount` 和 `existingChapters` 参数，支持指定章节数量和基于已有大纲续写；LLM prompt 动态调整；Mock 数据扩充至 8 章 (`backend/routes/novel.py`)

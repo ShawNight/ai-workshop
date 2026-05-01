@@ -33,7 +33,7 @@ export function EditorToolbar({ project, saveStatus, lastSavedAt, wordCount, onB
             )}
             {saveStatus === 'error' && (
               <span className="flex items-center gap-1 text-red-500">
-                <AlertCircle className="h-3 w-3" /> 保存失败 · 点击重试
+                <AlertCircle className="h-3 w-3" /> 保存失败
               </span>
             )}
             {wordCount > 0 && <span>· {wordCount.toLocaleString()} 字</span>}
@@ -43,15 +43,19 @@ export function EditorToolbar({ project, saveStatus, lastSavedAt, wordCount, onB
 
       <button
         onClick={onSave}
-        disabled={saveStatus === 'saving' || saveStatus === 'saved'}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-          saveStatus === 'unsaved' || saveStatus === 'error'
-            ? 'bg-[var(--primary)] text-white hover:opacity-90'
-            : 'bg-[var(--background)] text-[var(--text-tertiary)] cursor-default'
+        disabled={saveStatus === 'saving'}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+          saveStatus === 'unsaved'
+            ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm'
+            : saveStatus === 'error'
+            ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
+            : saveStatus === 'saving'
+            ? 'bg-[var(--border)] text-[var(--text-secondary)] cursor-wait'
+            : 'bg-[var(--background)] text-[var(--text-secondary)] hover:bg-[var(--border)]'
         }`}
       >
         <Save className="h-4 w-4" />
-        保存
+        {saveStatus === 'saving' ? '保存中...' : saveStatus === 'error' ? '重试保存' : '保存'}
       </button>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, ChevronRight, ChevronDown, Maximize2, Trash2 } from 'lucide-react';
 import { Button } from '../../ui/Button';
@@ -24,46 +24,12 @@ function appendOutlineToChapters(existingChapters, newOutline, startIndex) {
 
 export function OutlineTab() {
   const navigate = useNavigate();
-  const { currentProject, updateProject, setIsGeneratingOutline, isGeneratingOutline, markUnsaved, markSaving, markSaved, setSaveStatus } = useNovelStore();
+  const { currentProject, updateProject, setIsGeneratingOutline, isGeneratingOutline, markUnsaved } = useNovelStore();
   const [expanded, setExpanded] = useState({});
   const [chapterCount, setChapterCount] = useState(8);
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const inputRef = useRef(null);
-  const autoSaveTimer = useRef(null);
-
-  const debouncedSave = useCallback(() => {
-    if (!currentProject) return;
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    markUnsaved();
-    autoSaveTimer.current = setTimeout(async () => {
-      if (!currentProject) return;
-      markSaving();
-      try {
-        const res = await novelApi.updateProject(currentProject.id, {
-          title: currentProject.title,
-          genre: currentProject.genre,
-          premise: currentProject.premise,
-          synopsis: currentProject.synopsis,
-          writingStyle: currentProject.writingStyle,
-          coverColor: currentProject.coverColor,
-          status: currentProject.status,
-          targetWordCount: currentProject.targetWordCount,
-          currentWordCount: currentProject.currentWordCount,
-          outline: currentProject.outline,
-          chapters: currentProject.chapters,
-          characters: currentProject.characters,
-          locations: currentProject.locations,
-          relationships: currentProject.relationships,
-          settings: currentProject.settings,
-        });
-        if (res.data.success) markSaved();
-        else setSaveStatus('error');
-      } catch {
-        setSaveStatus('error');
-      }
-    }, 2000);
-  }, [currentProject, markUnsaved, markSaving, markSaved, setSaveStatus]);
 
   useEffect(() => {
     if (editingTitleId && inputRef.current) {
@@ -107,7 +73,7 @@ export function OutlineTab() {
           : newOutline;
 
         updateProject(currentProject.id, { outline: newOutlineItems, chapters: updatedChapters });
-        debouncedSave();
+        markUnsaved();
 
         if (res.data.mock) toast.info(res.data.message);
         else {
@@ -130,14 +96,14 @@ export function OutlineTab() {
     updateProject(currentProject.id, {
       chapters: chapters.filter((c) => c.id !== chapterId),
     });
-    debouncedSave();
+    markUnsaved();
   };
 
   const handleUpdateChapter = (chapterId, updates) => {
     updateProject(currentProject.id, {
       chapters: chapters.map((c) => c.id === chapterId ? { ...c, ...updates } : c),
     });
-    debouncedSave();
+    markUnsaved();
   };
 
   const handleTitleDoubleClick = (chapter) => {
