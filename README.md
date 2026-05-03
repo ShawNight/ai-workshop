@@ -135,6 +135,9 @@ ai-workshop/
 │   │   ├── music.py             # 音乐 API 路由
 │   │   ├── workflow.py          # 工作流 API 路由
 │   │   └── export.py            # 导出 API 路由
+│   ├── prompts/                 # Jinja2 提示词模板（与路由代码分离）
+│   │   ├── music/               # 音乐相关提示词 (4 个模板)
+│   │   └── novel/               # 小说相关提示词 (15 个模板)
 │   ├── data/                    # 数据库文件
 │   └── uploads/                 # 音频文件
 └── AGENTS.md                    # Agent 开发指南

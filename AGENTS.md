@@ -5,7 +5,10 @@
 ```
 ai-workshop/
 ├── frontend/          # React 19 + Vite (port 5173)
-├── backend/           # Python Flask (port 3001)
+├── backend/
+│   ├── routes/        # API 路由（music.py, novel.py, workflow.py, export.py）
+│   ├── prompts/       # Jinja2 提示词模板（.j2 文件，与路由代码分离）
+│   └── ...
 ├── README.md          # 项目说明与功能清单（功能变更时必须同步更新）
 └── AGENTS.md          # 本文档
 ```
@@ -33,6 +36,7 @@ cd frontend && npm run lint                    # ESLint 检查
 - **无 TypeScript**: 项目使用纯 JSX，无类型检查命令
 - **状态管理**: Zustand store 在 `frontend/src/store/`
 - **API 层**: `frontend/src/api/index.js` - axios 实例，包含 musicApi、novelApi、workflowApi
+- **提示词管理**: `backend/prompts/` - Jinja2 模板文件，路由代码通过 `render('novel/chapter.j2', **kwargs)` 调用。含 `---SYSTEM---`/`---USER---` 分隔符的模板返回 `{'system': '...', 'user': '...'}，否则返回字符串
 
 ## 后端 API 端点
 
