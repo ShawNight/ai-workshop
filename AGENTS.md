@@ -6,7 +6,7 @@
 ai-workshop/
 ├── frontend/          # React 19 + Vite (port 5173)
 ├── backend/           # Python Flask (port 3001)
-├── README.md          # 安装说明
+├── README.md          # 项目说明与功能清单（功能变更时必须同步更新）
 └── AGENTS.md          # 本文档
 ```
 
