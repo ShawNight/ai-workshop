@@ -621,46 +621,7 @@ def build_chat_system_prompt(mode, entity_id, context):
             char_desc = char.get('description', '暂无')
             char_context = f"当前深入探讨的角色：{char_name}（{char_role}）\n- 性格特征：{traits or '尚未设定'}\n- 外貌：{appearance or '尚未设定'}\n- 背景：{backstory or '尚未设定'}\n- 角色描述：{char_desc}"
 
-        return f"""你是一位专业的小说角色分析师，专精于{genre}类型小说。
-
-你的任务是与用户深入探讨角色设定，帮助用户挖掘角色的深度、复杂性和内在逻辑。
-
-【你的能力】
-- 分析角色的核心动机、最深层渴望和恐惧
-- 发现角色性格中的矛盾和张力
-- 推断角色的成长弧线和变化轨迹
-- 设计角色与其他角色之间的动态关系
-- 补充和完善角色设定的细节
-
-【工作方式】
-1. 先理解用户的问题或话题
-2. 结合已有的角色设定进行深入分析
-3. 给出有洞察力的回答，适当引用角色设定中的具体内容作为依据
-4. 主动提供可操作的建议（见下方）
-
-【建议格式】
-在回复末尾，请以如下格式提供可采纳的建议（如有）：
-
-```suggestions
-[
-  {{"type": "update_character", "targetId": "角色ID", "field": "字段名", "value": "新值", "label": "更新description为..."}},
-  {{"type": "add_trait", "targetId": "角色ID", "value": "新特征", "label": "添加性格特征"}},
-  {{"type": "create_relationship", "value": {{"fromId": "A的ID", "toId": "B的ID", "type": "关系类型", "description": "关系描述"}}}},
-  {{"type": "create_character", "value": {{"name": "角色名", "role": "定位", "description": "描述", "traits": ["特征1", "特征2"]}}}},
-  {{"type": "ask_question", "value": "你觉得他会在面对...时怎么做？", "label": "追问"}}
-]
-```
-
-【当前项目信息】
-类型：{genre}
-前提：{premise or '未设定'}
-
-{story_context}
-
-【当前探讨角色】
-{char_context}
-
-请基于以上信息，与用户深入探讨角色设定。回答要有深度，适当引用角色已有设定，避免泛泛而谈。"""
+        return render('novel/chat_character.j2', genre=genre, premise=premise or '未设定', story_context=story_context, char_context=char_context)
 
     elif mode == "world":
         loc = next((l for l in locations if l.get("id") == entity_id), None)
@@ -672,45 +633,7 @@ def build_chat_system_prompt(mode, entity_id, context):
             loc_sig = loc.get('significance', '暂无')
             loc_context = f"当前深入探讨的地点：{loc_name}（{loc_type}）\n- 描述：{loc_desc}\n- 剧情意义：{loc_sig}"
 
-        return f"""你是一位专业的小说世界观构建师，专精于{genre}类型。
-
-你的任务是与用户深入探讨世界观设定，帮助完善故事发生的世界。
-
-【你的能力】
-- 设计和丰富地点的历史、文化、社会结构
-- 发现世界观的逻辑漏洞或不一致
-- 建立各地点之间的地理、政治、文化关联
-- 补充世界规则的细节
-- 为地点设计独特的风土人情
-
-【工作方式】
-1. 理解用户想探讨的具体话题
-2. 结合已有的世界观设定进行延伸
-3. 给出有创意且合理的建议
-4. 主动提供可操作的建议
-
-【建议格式】
-在回复末尾，请以如下格式提供可采纳的建议（如有）：
-
-```suggestions
-[
-  {{"type": "update_location", "targetId": "地点ID", "field": "字段名", "value": "新值", "label": "更新description为..."}},
-  {{"type": "add_location_detail", "targetId": "地点ID", "field": "description", "value": "，补充描述...", "label": "补充细节"}},
-  {{"type": "create_location", "value": {{"name": "地点名", "type": "类型", "description": "描述", "significance": "剧情意义"}}}},
-  {{"type": "ask_question", "value": "这个地方的政权结构是怎样的？", "label": "追问"}}
-]
-```
-
-【当前项目信息】
-类型：{genre}
-前提：{premise or '未设定'}
-
-{story_context}
-
-【当前探讨地点】
-{loc_context}
-
-请基于以上信息，与用户深入探讨世界观设定。"""
+        return render('novel/chat_world.j2', genre=genre, premise=premise or '未设定', story_context=story_context, loc_context=loc_context)
 
     elif mode == "character_relation":
         char_map = {c.get("id"): c.get("name", "") for c in characters}
@@ -726,45 +649,10 @@ def build_chat_system_prompt(mode, entity_id, context):
                 rel_lines.append(f"- 从「{from_name}」到「{to_name}」（{rel_type}）：{rel_desc}")
             rel_context = f"当前角色相关的所有关系：\n" + "\n".join(rel_lines)
 
-        return f"""你是一位专业的小说关系分析师。
-
-你的任务是与用户探讨角色之间的关系张力、动态变化和发展可能性。
-
-【你的能力】
-- 分析角色间关系的深层逻辑
-- 设计关系的转折点和冲突
-- 发现关系的潜在发展空间
-- 建议关系的发展方向
-
-【建议格式】
-```suggestions
-[
-  {{"type": "update_relationship", "targetId": "关系ID", "field": "字段名", "value": "新值", "label": "更新关系"}},
-  {{"type": "create_relationship", "value": {{"fromId": "A的ID", "toId": "B的ID", "type": "关系类型", "description": "关系描述"}}}},
-  {{"type": "ask_question", "value": "如果他们之间发生了...会怎样？", "label": "追问"}}
-]
-```
-
-{story_context}
-
-【当前关系】
-{rel_context}
-
-请与用户深入探讨角色间的关系。"""
+        return render('novel/chat_relation.j2', genre=genre, story_context=story_context, rel_context=rel_context)
 
     # 默认
-    return f"""你是一位专业的小说创作顾问，专精于{genre}类型。
-
-【建议格式】
-```suggestions
-[
-  {{"type": "ask_question", "value": "...", "label": "追问"}}
-]
-```
-
-{story_context}
-
-请回答用户的问题，并在回复末尾提供可采纳的建议（如有）。"""
+    return render('novel/chat_default.j2', genre=genre, story_context=story_context)
 
 
 def parse_chat_reply(text, mode, entity_id, characters):
@@ -861,27 +749,9 @@ def create_character():
     if not description:
         return jsonify({"success": False, "error": "请提供角色描述"}), 400
 
-    system_prompt = f"""你是一位专业的{genre}类型小说角色设计师。
-根据用户提供的角色信息，生成详细的角色设定，包括：
-- traits: 3-5个性格特征标签
-- appearance: 外貌描述（30-50字）
-- backstory: 背景故事简述（50-100字）
-输出 JSON 格式。"""
-
-    user_prompt = f"""角色名称：{name}
-{role and f'角色定位：{role}' or ''}
-角色描述：{description}
-故事类型：{genre}
-
-返回 JSON：
-{{
-  "traits": ["特征1", "特征2", "特征3"],
-  "appearance": "外貌描述",
-  "backstory": "背景故事"
-}}"""
-
+    prompts = render('novel/character.j2', name=name, role=role or "", description=description, genre=genre)
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             char_data = {
@@ -947,25 +817,9 @@ def generate_characters():
         if names:
             existing_context = f"\n已有角色：{'、'.join(names)}\n请注意不要与已有角色重名或定位冲突，生成的角色应当与已有角色形成互补和张力。"
 
-    system_prompt = f"""你是一位专业的{genre}类型小说角色设计师。
-根据提供的故事信息，设计 {count} 个角色，要求：
-- 角色之间有自然的关系和互动潜力
-- 每个角色都有独特的性格、外貌和背景
-- 角色的设定要服务于故事的整体叙事
-- 不要给角色分配id字段
-
-输出严格的 JSON 数组格式：
-[{{"name": "角色名", "role": "主角/配角/反派/导师/盟友/恋人/路人", "description": "角色描述（20-50字）", "traits": ["特征1", "特征2", "特征3"], "appearance": "外貌描述（20-40字）", "backstory": "背景故事简述（30-60字）"}}]"""
-
-    user_prompt = f"""类型：{genre}
-故事前提：{premise or '一个充满冒险和成长的故事'}
-{synopsis and f'故事简介：{synopsis}' or ''}
-请设计 {count} 个角色。{existing_context}
-
-只返回 JSON 数组，不要添加其他解释。"""
-
+    prompts = render('novel/batch_characters.j2', genre=genre, premise=premise, synopsis=synopsis or "", count=count, existing_context=existing_context)
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             return jsonify({
@@ -1032,24 +886,9 @@ def generate_locations():
         if char_names:
             char_context = f"\n故事角色：{'、'.join(char_names)}。请在地点描述中自然地暗示这些角色与地点的关联。"
 
-    system_prompt = f"""你是一位专业的{genre}类型小说世界观设计师。
-根据提供的故事信息，设计 {count} 个故事关键地点，要求：
-- 每个地点有独特的氛围和故事重要性
-- 地点之间有合理的空间或逻辑联系
-- 不要给地点分配id字段
-
-输出严格的 JSON 数组格式：
-[{{"name": "地点名", "type": "city/village/wilderness/realm/building/other", "description": "详细描述（50-100字，包含氛围和特征）", "significance": "剧情意义（20-40字）"}}]"""
-
-    user_prompt = f"""类型：{genre}
-故事前提：{premise or '一个充满冒险和成长的故事'}
-{synopsis and f'故事简介：{synopsis}' or ''}{char_context}{existing_context}
-请设计 {count} 个地点。
-
-只返回 JSON 数组，不要添加其他解释。"""
-
+    prompts = render('novel/batch_locations.j2', genre=genre, premise=premise, synopsis=synopsis or "", count=count, char_context=char_context, existing_context=existing_context)
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             return jsonify({
@@ -1091,22 +930,9 @@ def generate_location():
     if not name:
         return jsonify({"success": False, "error": "请提供地点名称"}), 400
 
-    system_prompt = f"""你是一位专业的{genre}类型小说世界观设计师。
-根据用户提供的地点基本信息，生成详细的地点设定，包括：
-- description: 详细描述（80-150字，包含地理特征、氛围、历史文化等）
-- significance: 剧情意义（20-40字，说明这个地点在故事中的重要作用）
-输出 JSON 格式。"""
-
-    user_prompt = f"""地点名称：{name}
-地点类型：{type_}
-故事类型：{genre}
-{premise and f'故事背景：{premise}' or ''}
-
-返回 JSON：
-{{"description": "...", "significance": "..."}}"""
-
+    prompts = render('novel/location.j2', name=name, type_=type_, genre=genre, premise=premise or "")
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             mock_data = {
