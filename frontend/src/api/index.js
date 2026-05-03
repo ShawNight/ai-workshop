@@ -29,6 +29,7 @@ export const novelApi = {
   updateProject: (id, data) => api.put(`/novel/projects/${id}`, data),
   deleteProject: (id) => api.delete(`/novel/projects/${id}`),
   generateOutline: (data) => api.post('/novel/generate-outline', data),
+  generateOutlineDirections: (data) => api.post('/novel/generate-outline-directions', data),
   generateChapter: (data) => api.post('/novel/generate-chapter', data),
   createCharacter: (data) => api.post('/novel/character', data),
   generateCharacters: (data) => api.post('/novel/generate-characters', data),

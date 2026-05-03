@@ -17,6 +17,19 @@ import { ExportTab } from '../components/novel/tabs/ExportTab';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
 
+// 将 AI 返回的文本（\n\n=段落分隔，\n=段内换行）转为 HTML
+const formatAIContent = (text) => {
+  const paragraphs = text.split(/\n\n+/);
+  return paragraphs
+    .map((p) => {
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      const withBreaks = trimmed.replace(/\n/g, '<br>');
+      return `<p>${withBreaks}</p>`;
+    })
+    .join('');
+};
+
 export function NovelEditorPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -120,7 +133,7 @@ const performSave = useCallback(async () => {
       });
 
       if (res.data.success) {
-        const formattedContent = `<p>${res.data.content.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>')}</p>`;
+        const formattedContent = formatAIContent(res.data.content);
         const chapters = currentProject.chapters.map((c) =>
           c.id === editingChapterId ? { ...c, content: formattedContent } : c
         );
@@ -156,9 +169,8 @@ const performSave = useCallback(async () => {
         if (res.data.success) {
           const before = (chapter.content || '').substring(0, selection.from);
           const after = (chapter.content || '').substring(selection.to);
-          // 将 \n\n 转换为段落分隔，单个 \n 用 <br> 保留换行
-          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
-          const newContent = before + `<p>${formatted}</p>` + after;
+const formatted = formatAIContent(res.data.content);
+            const newContent = before + formatted + after;
           handleChapterContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('改写完成');
@@ -176,9 +188,8 @@ const performSave = useCallback(async () => {
           outline: currentProject.outline || [],
         });
         if (res.data.success) {
-          // 将 \n\n 转换为段落分隔，单个 \n 用 <br> 保留换行
-          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
-          const newContent = (chapter.content || '') + `<p>${formatted}</p>`;
+const formatted = formatAIContent(res.data.content);
+            const newContent = (chapter.content || '') + formatted;
           handleChapterContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('续写完成');

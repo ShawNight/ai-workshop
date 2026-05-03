@@ -28,6 +28,12 @@ MOCK_OUTLINE = [
     {"title": "第八章：破晓新生", "description": "主角突破自我极限，解决核心冲突，故事走向结局，但同时为可能的续篇留下空间。"},
 ]
 
+MOCK_DIRECTIONS = [
+    {"title": "命运逆转", "description": "看似稳固的局面突然崩塌，主角被迫重新审视一切。一个意想不到的真相揭开，改变了所有人的立场和选择。主角必须在信任与怀疑之间做出抉择，而这次选择将深刻影响后续每一个角色的命运走向。", "keyPoints": ["关键证据浮出水面", "盟友身份遭质疑", "被迫做出艰难抉择"]},
+    {"title": "暗流涌动", "description": "表面风平浪静，实则各方势力暗中角力。主角获得了一个可以扭转局势的关键筹码，但使用它意味着付出沉重代价。同时，一个隐藏已久的势力正式登场，让局势更加扑朔迷离。", "keyPoints": ["获得关键筹码", "隐藏势力浮出水面", "代价与收益的权衡"]},
+    {"title": "破局之路", "description": "主角选择主动出击，打破僵局。通过一次大胆的计划，不仅解决了眼前的困境，还揭示了一个更大的阴谋。但在胜利的曙光中，新的隐患悄然浮现，为下一段旅程埋下伏笔。", "keyPoints": ["大胆计划的制定与执行", "意外揭示更大的阴谋", "新的威胁悄然出现"]},
+]
+
 MOCK_CHAPTER = """夜色如墨，星辰稀疏地挂在天空。
 
 {chapter_title}
@@ -268,6 +274,91 @@ def delete_project(project_id):
 
 # ==================== AI 生成端点 ====================
 
+@novel_bp.route("/generate-outline-directions", methods=["POST"])
+def generate_outline_directions():
+    """AI 生成大纲方向方案（用户先选方向，再生成章节）"""
+    data = request.get_json()
+    premise = data.get("premise", "")
+    genre = data.get("genre", "通用")
+    synopsis = data.get("synopsis", "")
+    direction = data.get("direction", "")
+    chapter_count = data.get("chapterCount", 4)
+    existing_chapters = data.get("existingChapters", [])
+    characters = data.get("characters") or []
+    relationships = data.get("relationships") or []
+    locations = data.get("locations") or []
+
+    try:
+        chapter_count = int(chapter_count)
+        if chapter_count < 1:
+            chapter_count = 4
+    except (ValueError, TypeError):
+        chapter_count = 4
+
+    story_context = build_story_context(characters, relationships, locations)
+
+    has_existing = isinstance(existing_chapters, list) and len(existing_chapters) > 0
+    existing_summary = ""
+    if has_existing:
+        existing_summary = "已有章节大纲：\n" + "\n".join(
+            f"- {ch.get('title', '')}：{ch.get('description', '')}"
+            for ch in existing_chapters
+        )
+
+    system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
+你的任务是根据用户提供的故事方向描述，生成3种不同的剧情走向方案。每种方案需要更加具体、可执行，包含明确的情节发展和关键转折点。
+{"如果提供了角色和世界观设定，请在方案中合理利用这些设定。" if story_context else ""}
+输出必须是严格的 JSON 数组格式。"""
+
+    user_prompt = f"""类型：{genre}
+故事前提：{premise or '一个充满冒险和成长的故事'}
+{synopsis and f'故事简介：{synopsis}' or ''}
+
+{existing_summary}
+
+{story_context}
+
+用户期望的剧情方向：{direction or '（无特定方向，请自由发挥）'}
+计划追加{chapter_count}章
+
+请生成3种不同的剧情走向方案，每种方案包含：
+- title: 方案标题（简短有力，如"命运逆转"、"暗流涌动"）
+- description: 详细描述（100-200字，描述从当前剧情出发的发展脉络、核心冲突和情绪走向）
+- keyPoints: 关键转折点列表（2-3个字符串，列出该方向下最重要的情节转折）
+
+只返回 JSON 数组，格式如：
+[{{"title": "...", "description": "...", "keyPoints": ["...", "..."]}}, ...]"""
+
+    try:
+        result = generate_with_llm(user_prompt, system_prompt)
+
+        if result is None:
+            return jsonify({
+                "success": True,
+                "directions": MOCK_DIRECTIONS,
+                "mock": True,
+                "message": "未配置 API Key，返回示例方案"
+            })
+
+        parsed = parse_json_from_response(result, r'\[.*\]')
+        if parsed and isinstance(parsed, list):
+            for item in parsed:
+                item.setdefault("title", "未命名方案")
+                item.setdefault("description", "")
+                item.setdefault("keyPoints", [])
+            return jsonify({"success": True, "directions": parsed})
+        else:
+            return jsonify({
+                "success": True,
+                "directions": MOCK_DIRECTIONS,
+                "mock": True,
+                "message": "AI 返回格式异常，使用示例方案"
+            })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"生成方向方案失败: {str(e)}"}), 500
+
+
 @novel_bp.route("/generate-outline", methods=["POST"])
 def generate_outline():
     data = request.get_json()
@@ -275,6 +366,7 @@ def generate_outline():
     genre = data.get("genre", "通用")
     synopsis = data.get("synopsis", "")
     chapter_count = data.get("chapterCount", 8)
+    direction = data.get("direction", "")
     existing_chapters = data.get("existingChapters", [])
     characters = data.get("characters") or []
     relationships = data.get("relationships") or []
@@ -294,6 +386,8 @@ def generate_outline():
 
     story_context = build_story_context(characters, relationships, locations)
 
+    direction_text = f"\n用户期望的剧情走向：{direction}\n请紧密围绕此方向设计章节大纲，确保情节发展与用户方向一致。" if direction else ""
+
     if has_existing:
         existing_summary = "\n".join(
             f"- {ch.get('title', '')}：{ch.get('description', '')}"
@@ -311,7 +405,7 @@ def generate_outline():
 {existing_summary}
 
 {story_context}
-
+{direction_text}
 请继续这个故事，追加{chapter_count}个新章节，每章包含：
 - title: 章节标题（含章节序号，从第{len(existing_chapters) + 1}章开始）
 - description: 章节概要（50-100字，包含核心情节和冲突）
@@ -329,7 +423,7 @@ def generate_outline():
 {synopsis and f'故事简介：{synopsis}' or ''}
 
 {story_context}
-
+{direction_text}
 请生成一个包含{chapter_count}章的故事大纲，每章包含：
 - title: 章节标题（含章节序号，如"第一章：xxxx"）
 - description: 章节概要（50-100字，包含核心情节和冲突）

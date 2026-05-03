@@ -105,3 +105,21 @@ html {
   display: flex;
   flex-direction: column;
 }
+
+.ProseMirror p {
+  text-indent: 2em;
+}
+
+.ProseMirror li > p,
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3,
+.ProseMirror h4,
+.ProseMirror h5,
+.ProseMirror h6 {
+  text-indent: 0;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  text-indent: 0;
+}

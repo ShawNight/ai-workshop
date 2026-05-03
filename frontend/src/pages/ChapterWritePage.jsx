@@ -10,6 +10,19 @@ import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
 import { formatSaveTime } from '../utils/formatSaveTime';
 
+// 将 AI 返回的文本（\n\n=段落分隔，\n=段内换行）转为 HTML
+const formatAIContent = (text) => {
+  const paragraphs = text.split(/\n\n+/);
+  return paragraphs
+    .map((p) => {
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      const withBreaks = trimmed.replace(/\n/g, '<br>');
+      return `<p>${withBreaks}</p>`;
+    })
+    .join('');
+};
+
 export function ChapterWritePage() {
   const { projectId, chapterId } = useParams();
   const navigate = useNavigate();
@@ -104,7 +117,7 @@ export function ChapterWritePage() {
 
       if (res.data.success) {
         const chapters = currentProject.chapters.map((c) =>
-          c.id === chapterId ? { ...c, content: `<p>${res.data.content.replace(/\n/g, '</p><p>')}</p>` } : c
+          c.id === chapterId ? { ...c, content: formatAIContent(res.data.content) } : c
         );
         updateProject(currentProject.id, { chapters });
         if (res.data.mock) toast.info(res.data.message);
@@ -142,9 +155,8 @@ export function ChapterWritePage() {
           const content = chapter.content || '';
           const before = content.substring(0, selection.from);
           const after = content.substring(selection.to);
-          // 将 \n\n 转换为段落分隔，空段落产生的多余空行
-          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
-          const newContent = before + `<p>${formatted}</p>` + after;
+          const formatted = formatAIContent(res.data.content);
+          const newContent = before + formatted + after;
           handleContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('改写完成');
@@ -162,9 +174,8 @@ export function ChapterWritePage() {
           outline: currentProject.outline || [],
         });
         if (res.data.success) {
-          // 将 \n\n 转换为段落分隔，空段落产生的多余空行
-          const formatted = res.data.content.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
-          const newContent = (chapter.content || '') + `<p>${formatted}</p>`;
+          const formatted = formatAIContent(res.data.content);
+          const newContent = (chapter.content || '') + formatted;
           handleContentChange({ html: newContent, text: '' });
           if (res.data.mock) toast.info(res.data.message);
           else toast.success('续写完成');

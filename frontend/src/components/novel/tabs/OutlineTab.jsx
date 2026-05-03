@@ -5,6 +5,7 @@ import { Button } from '../../ui/Button';
 import { toast } from '../../ui/Toast';
 import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
+import { AppendOutlineModal } from '../AppendOutlineModal';
 
 function generateId() {
   return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -27,6 +28,7 @@ export function OutlineTab() {
   const { currentProject, updateProject, setIsGeneratingOutline, isGeneratingOutline, markUnsaved } = useNovelStore();
   const [expanded, setExpanded] = useState({});
   const [chapterCount, setChapterCount] = useState(8);
+  const [showOutlineModal, setShowOutlineModal] = useState(false);
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const inputRef = useRef(null);
@@ -42,7 +44,7 @@ export function OutlineTab() {
 
   const chapters = currentProject.chapters || [];
 
-  const handleGenerateOutline = async () => {
+  const handleGenerateOutline = async ({ direction, chapterCount: count }) => {
     setIsGeneratingOutline(true);
     try {
       const existingChapters = chapters.map((c) => ({
@@ -54,11 +56,12 @@ export function OutlineTab() {
         premise: currentProject.premise || '一个关于成长和冒险的故事',
         genre: currentProject.genre,
         synopsis: currentProject.synopsis || '',
-        chapterCount: chapterCount,
+        chapterCount: count || chapterCount,
         existingChapters: existingChapters,
         characters: currentProject.characters || [],
         relationships: currentProject.relationships || [],
         locations: currentProject.locations || [],
+        direction: direction || '',
       });
 
       if (res.data.success) {
@@ -156,7 +159,7 @@ export function OutlineTab() {
             />
           </div>
           <Button
-            onClick={handleGenerateOutline}
+            onClick={() => setShowOutlineModal(true)}
             disabled={isGeneratingOutline}
             loading={isGeneratingOutline}
             variant="secondary"
@@ -252,9 +255,17 @@ export function OutlineTab() {
         <div className="text-center py-8 border-2 border-dashed border-[var(--border)] rounded-xl">
           <Sparkles className="h-8 w-8 mx-auto mb-2 text-[var(--text-secondary)] opacity-50" />
           <p className="text-sm text-[var(--text-secondary)]">点击「AI 生成大纲」自动生成故事结构</p>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">可设置章节数目，生成后双击标题可编辑</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">可设置方向和章节数目，生成后双击标题可编辑</p>
         </div>
       )}
+
+      <AppendOutlineModal
+        isOpen={showOutlineModal}
+        onClose={() => setShowOutlineModal(false)}
+        onGenerate={handleGenerateOutline}
+        chapterCount={chapterCount}
+        hasExisting={chapters.length > 0}
+      />
     </div>
   );
 }

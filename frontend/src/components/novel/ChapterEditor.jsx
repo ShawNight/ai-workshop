@@ -3,9 +3,94 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
-import { Bold, Italic, Heading, Undo, Redo, Sparkles, Wand2, Lightbulb } from 'lucide-react';
+import { Bold, Italic, Heading, Undo, Redo, Sparkles, Wand2, Lightbulb, AlignJustify } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { toast } from '../ui/Toast';
+
+const reformatContent = (html) => {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+
+  const blocks = [];
+
+  const walk = (container) => {
+    for (const node of Array.from(container.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent;
+        if (text.trim()) {
+          text.trim().split(/\n\n+/).forEach((p) => {
+            const t = p.trim();
+            if (t) blocks.push({ type: 'paragraph', content: t });
+          });
+        }
+        continue;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+      const tag = node.tagName.toLowerCase();
+
+      if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) {
+        const text = (node.textContent || '').trim();
+        if (text) blocks.push({ type: tag, content: text });
+      } else if (tag === 'p') {
+        const text = (node.textContent || '').trim();
+        if (!text) continue;
+        const innerHTML = node.innerHTML;
+        const hasDoubleBr = /<br\s*\/?>\s*<br\s*\/?>/i.test(innerHTML);
+        if (hasDoubleBr) {
+          innerHTML.split(/<br\s*\/?>\s*<br\s*\/?>/i).forEach((part) => {
+            const t = part.replace(/<[^>]+>/g, '').trim();
+            if (t) blocks.push({ type: 'paragraph', content: t });
+          });
+        } else {
+          blocks.push({ type: 'paragraph', content: text });
+        }
+      } else if (tag === 'ul' || tag === 'ol') {
+        for (const li of node.querySelectorAll('li')) {
+          const text = (li.textContent || '').trim();
+          if (text) blocks.push({ type: 'paragraph', content: text });
+        }
+      } else if (tag === 'blockquote') {
+        const text = (node.textContent || '').trim();
+        if (text) {
+          text.split(/\n\n+/).forEach((p) => {
+            const t = p.trim();
+            if (t) blocks.push({ type: 'paragraph', content: t });
+          });
+        }
+      } else {
+        walk(node);
+      }
+    }
+  };
+
+  walk(div);
+
+  if (blocks.length === 0) {
+    const text = (div.innerText || '').trim();
+    if (!text) return html;
+    const paragraphs = text
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    const result =
+      paragraphs.length <= 1 && text.includes('\n')
+        ? text.split(/\n/).map((p) => p.trim()).filter((p) => p.length > 0)
+        : paragraphs;
+    if (result.length === 0) return html;
+    return result.map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+  }
+
+  return blocks
+    .map((block) => {
+      const content = block.content.replace(/\n/g, '<br>');
+      if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(block.type)) {
+        return `<${block.type}>${content}</${block.type}>`;
+      }
+      return `<p>${content}</p>`;
+    })
+    .join('');
+};
 
 export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue, onBrainstorm, isGenerating, activeAction }) {
   const editor = useEditor({
@@ -68,6 +153,20 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
     }
   }, [editor]);
 
+  const handleReformat = useCallback(() => {
+    if (!editor) return;
+    if (!window.confirm('重新排版将清除加粗、斜体等格式，统一为标准小说排版。是否继续？')) return;
+    const html = editor.getHTML();
+    const reformatted = reformatContent(html);
+    if (reformatted === html) {
+      toast.info('内容已是标准格式，无需排版');
+      return;
+    }
+    editor.commands.setContent(reformatted);
+    onContentChange?.({ html: reformatted, text: editor.getText() });
+    toast.success('排版完成');
+  }, [editor, onContentChange]);
+
   if (!editor) return null;
 
   return (
@@ -109,6 +208,14 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
             title="重做"
           >
             <Redo className="h-4 w-4" />
+          </button>
+          <span className="w-px h-5 bg-[var(--border)] mx-1" />
+          <button
+            onClick={handleReformat}
+            className="p-1.5 rounded hover:bg-[var(--surface)]"
+            title="重新排版"
+          >
+            <AlignJustify className="h-4 w-4" />
           </button>
         </div>
 
