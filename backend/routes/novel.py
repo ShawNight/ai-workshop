@@ -14,6 +14,7 @@ from database import (
 novel_bp = Blueprint("novel", __name__)
 
 from config import LLM_API_KEY, LLM_CHAT_URL, LLM_CHAT_MODEL, get_proxies
+from prompts import render
 
 # ==================== LLM 调用 ====================
 
@@ -305,32 +306,17 @@ def generate_outline_directions():
             for ch in existing_chapters
         )
 
-    system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
-你的任务是根据用户提供的故事方向描述，生成3种不同的剧情走向方案。每种方案需要更加具体、可执行，包含明确的情节发展和关键转折点。
-{"如果提供了角色和世界观设定，请在方案中合理利用这些设定。" if story_context else ""}
-输出必须是严格的 JSON 数组格式。"""
-
-    user_prompt = f"""类型：{genre}
-故事前提：{premise or '一个充满冒险和成长的故事'}
-{synopsis and f'故事简介：{synopsis}' or ''}
-
-{existing_summary}
-
-{story_context}
-
-用户期望的剧情方向：{direction or '（无特定方向，请自由发挥）'}
-计划追加{chapter_count}章
-
-请生成3种不同的剧情走向方案，每种方案包含：
-- title: 方案标题（简短有力，如"命运逆转"、"暗流涌动"）
-- description: 详细描述（100-200字，描述从当前剧情出发的发展脉络、核心冲突和情绪走向）
-- keyPoints: 关键转折点列表（2-3个字符串，列出该方向下最重要的情节转折）
-
-只返回 JSON 数组，格式如：
-[{{"title": "...", "description": "...", "keyPoints": ["...", "..."]}}, ...]"""
+    prompts = render('novel/outline_directions.j2',
+        genre=genre,
+        premise=premise,
+        synopsis=synopsis,
+        direction=direction,
+        chapter_count=chapter_count,
+        existing_summary=existing_summary,
+        story_context=story_context)
 
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             return jsonify({
@@ -393,46 +379,26 @@ def generate_outline():
             f"- {ch.get('title', '')}：{ch.get('description', '')}"
             for ch in existing_chapters
         )
-        system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
-你的任务是基于已有的故事大纲，续写追加新的章节。保持与已有章节的叙事连贯和因果递进。
-{"如果提供了角色和世界观设定，请在大纲中合理利用这些设定，让情节自然地涉及这些角色和地点。" if story_context else ""}
-输出必须是严格的 JSON 数组格式，只包含新增的章节。"""
-        user_prompt = f"""类型：{genre}
-故事前提：{premise}
-{synopsis and f'故事简介：{synopsis}' or ''}
-
-已有章节大纲：
-{existing_summary}
-
-{story_context}
-{direction_text}
-请继续这个故事，追加{chapter_count}个新章节，每章包含：
-- title: 章节标题（含章节序号，从第{len(existing_chapters) + 1}章开始）
-- description: 章节概要（50-100字，包含核心情节和冲突）
-
-只返回 JSON 数组，格式如：
-[{{"title": "第{len(existing_chapters) + 1}章：xxxx", "description": "..."}}, ...]"""
+        prompts = render('novel/outline_append.j2',
+            genre=genre,
+            premise=premise,
+            synopsis=synopsis,
+            existing_summary=existing_summary,
+            story_context=story_context,
+            direction_text=direction_text,
+            chapter_count=chapter_count,
+            next_chapter_num=len(existing_chapters) + 1)
     else:
-        system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
-你的任务是生成一个逻辑严密、节奏紧凑的故事大纲，包含 {chapter_count} 个章节。
-每个章节需要有明确的核心冲突和情感弧线，章节之间需要有因果递进关系。
-{"如果提供了角色和世界观设定，请在大纲中合理利用这些设定，让情节自然地涉及这些角色和地点。" if story_context else ""}
-输出必须是严格的 JSON 数组格式。"""
-        user_prompt = f"""类型：{genre}
-故事前提：{premise}
-{synopsis and f'故事简介：{synopsis}' or ''}
-
-{story_context}
-{direction_text}
-请生成一个包含{chapter_count}章的故事大纲，每章包含：
-- title: 章节标题（含章节序号，如"第一章：xxxx"）
-- description: 章节概要（50-100字，包含核心情节和冲突）
-
-只返回 JSON 数组，格式如：
-[{{"title": "第一章：xxxx", "description": "..."}}, ...]"""
+        prompts = render('novel/outline_new.j2',
+            genre=genre,
+            premise=premise,
+            synopsis=synopsis,
+            story_context=story_context,
+            direction_text=direction_text,
+            chapter_count=chapter_count)
 
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         mock_data = MOCK_OUTLINE if not has_existing else [
             {"title": f"第{len(existing_chapters) + i + 1}章：新篇章", "description": f"第{len(existing_chapters) + i + 1}章的精彩内容，故事继续展开。"}
@@ -472,31 +438,17 @@ def generate_chapter():
 
     story_context = build_story_context(characters, relationships, locations, outline)
 
-    system_prompt = f"""你是一位专业的小说作家，专精于{genre}类型小说的创作。
-根据提供的章节信息、故事背景、角色设定和前文内容，创作一个生动、引人入胜的章节。
-{writing_style and f'请使用以下写作风格：{writing_style}' or ''}
-确保与前文衔接自然，同时本章节有独立的情节完整性。
-严格遵守已设定的角色性格、关系和背景，不要引入与已有设定矛盾的内容。
-注重场景描写、人物对话和心理刻画，保持叙事节奏感。
-如果提供了角色关系信息，请在情节中合理利用这些关系推动故事发展。"""
-
-    user_prompt = f"""章节标题：{chapter_title}
-{chapter_description and f'章节概要：{chapter_description}' or ''}
-故事类型：{genre}
-故事背景：{premise or '一个充满悬念和惊喜的故事'}
-前文摘要：{previous_content or '（故事开篇）'}
-
-{story_context}
-
-请创作本章节内容，要求：
-1. 字数在 1000-2000 字之间
-2. 包含清晰的开头、发展和结尾
-3. 适当的人物对话、心理描写和环境描写，对话要符合角色性格
-4. 与前文自然衔接
-5. 如果提供了角色列表，至少让其中 1-2 个角色在本章出场或产生情节推动"""
+    prompts = render('novel/chapter.j2',
+        genre=genre,
+        chapter_title=chapter_title,
+        chapter_description=chapter_description or "",
+        premise=premise,
+        previous_content=previous_content or "",
+        story_context=story_context,
+        writing_style=writing_style or "")
 
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             mock = MOCK_CHAPTER.replace("{chapter_title}", chapter_title)
@@ -530,25 +482,16 @@ def continue_chapter():
 
     story_context = build_story_context(characters, relationships, locations, outline)
 
-    system_prompt = f"""你是一位专业的{genre}小说续写作家。
-你的任务是接着已有的内容自然地继续写下去，保持一致的文风、语气和叙事节奏。
-不要重复已有内容，从断点处自然延续。
-严格遵守已设定的角色性格和关系，确保角色言行一致。
-{writing_style and f'写作风格：{writing_style}' or ''}"""
-
-    user_prompt = f"""章节：{chapter_title}
-类型：{genre}
-故事背景：{premise or ''}
-
-{story_context}
-
-已有内容（结尾部分）：
-{current_content[-500:]}
-
-请从以上内容断点处自然续写，字数在 500-1000 字。确保文风一致，情节合理推进，角色行为符合其设定。直接输出小说正文内容，不要添加任何标题、标记或前缀说明。"""
+    prompts = render('novel/continue.j2',
+        genre=genre,
+        chapter_title=chapter_title,
+        premise=premise or "",
+        story_context=story_context,
+        current_content=current_content[-500:],
+        writing_style=writing_style or "")
 
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             mock = f"夜风渐起，吹动了他的衣角。他凝视着远方，心中涌起难以名状的情绪。\n\n这一刻，他终于明白了那些年长者口中的话——有些路，注定要一个人走完。但他并不孤单，因为那些曾经帮助过他的人，他们的意志已经融入了他的每一步。\n\n他深吸一口气，迈出了坚定的一步。"
@@ -579,22 +522,15 @@ def rewrite_text():
 
     story_context = build_story_context(characters, relationships)
 
-    system_prompt = f"""你是一位专业的{genre}小说编辑。
-根据用户的改写要求，对指定文本进行改写。保持原意但优化表达。
-尊重已设定的角色性格和关系，保持人物言行一致。
-{context and f'上下文参考：{context}' or ''}"""
-
-    user_prompt = f"""原文：
-{selected_text}
-
-{story_context}
-
-改写要求：{instruction or '优化文笔，使表达更生动流畅，保持角色性格特征'}
-
-请直接返回改写后的文本，不要加解释和标记。"""
+    prompts = render('novel/rewrite.j2',
+        genre=genre,
+        selected_text=selected_text,
+        story_context=story_context,
+        context=context or "",
+        instruction=instruction or "优化文笔，使表达更生动流畅，保持角色性格特征")
 
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             return jsonify({"success": True, "content": selected_text,
@@ -629,26 +565,14 @@ def brainstorm():
 
     story_context = build_story_context(characters, relationships, trimmed_locations, trimmed_outline)
 
-    system_prompt = f"""你是一位创意小说策划，专精于{genre}类型。
-针对用户的想法，结合已有的角色、关系和世界观设定，生成 3 个不同的创作方向建议，每个建议包含：
-- 一个吸引人的方向标题
-- 简要的情节发展思路（50-100字）
-如果提供了角色关系或世界观信息，请让生成的方向尽量利用这些设定，但同时保持创意的发散性。
-输出 JSON 数组格式。"""
-
-    user_prompt = f"""类型：{genre}
-故事背景：{premise or '未指定'}
-{story_context}
-用户想法：{idea}
-
-请生成 3 个创作方向建议，返回 JSON：
-[
-  {{"title": "方向标题", "description": "情节发展思路"}},
-  ...
-]"""
+    prompts = render('novel/brainstorm.j2',
+        genre=genre,
+        premise=premise or '未指定',
+        story_context=story_context,
+        idea=idea)
 
     try:
-        result = generate_with_llm(user_prompt, system_prompt)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
             mock = [
