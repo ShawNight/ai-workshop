@@ -277,7 +277,7 @@ export function WorldTab() {
 
   return (
     <div className="flex-1 overflow-hidden flex">
-      <div className={`flex-1 overflow-y-auto p-6 transition-all ${showChat ? 'max-w-[55%]' : ''}`}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden min-w-0 p-6 transition-all ${showChat ? 'max-w-[55%]' : ''}`}>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold">世界观 · 地点 ({locations.length})</h2>
         <Button size="sm" onClick={() => setIsCreating(true)}>

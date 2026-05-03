@@ -17,7 +17,7 @@ export function EditorSidebar({ activeTab, onTabChange, project }) {
 
   return (
     <div className="w-56 flex-shrink-0 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col">
-      <nav className="p-2 space-y-1">
+      <nav className="flex-1 p-2 space-y-1">
         {tabs.map((tab) => {
           const count = tab.key === 'characters' && project?.characters?.length
             ? ` (${project.characters.length})`

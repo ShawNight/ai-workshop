@@ -318,7 +318,7 @@ export function CharacterTab() {
 
   return (
     <div className="flex-1 overflow-hidden flex">
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden transition-all ${showChat ? 'max-w-[55%]' : ''}`}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden min-w-0 transition-all ${showChat ? 'max-w-[55%]' : ''}`}>
         <div className="flex items-center justify-between p-6 pb-0">
           <h2 className="text-lg font-semibold">角色管理 ({characters.length})</h2>
           <div className="flex items-center gap-2">
