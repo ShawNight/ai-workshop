@@ -27,6 +27,8 @@ export function BrainstormModal({ isOpen, onClose, onApplyIdea }) {
         premise: currentProject?.premise || '',
         characters: currentProject?.characters || [],
         relationships: currentProject?.relationships || [],
+        locations: currentProject?.locations || [],
+        outline: currentProject?.outline || [],
       });
       if (res.data.success) {
         setResults(res.data.ideas || []);

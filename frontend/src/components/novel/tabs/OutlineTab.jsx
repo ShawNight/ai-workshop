@@ -56,6 +56,9 @@ export function OutlineTab() {
         synopsis: currentProject.synopsis || '',
         chapterCount: chapterCount,
         existingChapters: existingChapters,
+        characters: currentProject.characters || [],
+        relationships: currentProject.relationships || [],
+        locations: currentProject.locations || [],
       });
 
       if (res.data.success) {

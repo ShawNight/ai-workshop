@@ -276,6 +276,9 @@ def generate_outline():
     synopsis = data.get("synopsis", "")
     chapter_count = data.get("chapterCount", 8)
     existing_chapters = data.get("existingChapters", [])
+    characters = data.get("characters") or []
+    relationships = data.get("relationships") or []
+    locations = data.get("locations") or []
 
     try:
         chapter_count = int(chapter_count)
@@ -289,6 +292,8 @@ def generate_outline():
 
     has_existing = isinstance(existing_chapters, list) and len(existing_chapters) > 0
 
+    story_context = build_story_context(characters, relationships, locations)
+
     if has_existing:
         existing_summary = "\n".join(
             f"- {ch.get('title', '')}：{ch.get('description', '')}"
@@ -296,6 +301,7 @@ def generate_outline():
         )
         system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
 你的任务是基于已有的故事大纲，续写追加新的章节。保持与已有章节的叙事连贯和因果递进。
+{"如果提供了角色和世界观设定，请在大纲中合理利用这些设定，让情节自然地涉及这些角色和地点。" if story_context else ""}
 输出必须是严格的 JSON 数组格式，只包含新增的章节。"""
         user_prompt = f"""类型：{genre}
 故事前提：{premise}
@@ -303,6 +309,8 @@ def generate_outline():
 
 已有章节大纲：
 {existing_summary}
+
+{story_context}
 
 请继续这个故事，追加{chapter_count}个新章节，每章包含：
 - title: 章节标题（含章节序号，从第{len(existing_chapters) + 1}章开始）
@@ -314,10 +322,13 @@ def generate_outline():
         system_prompt = f"""你是一位资深的小说大纲设计师，专精于{genre}类型小说的结构设计。
 你的任务是生成一个逻辑严密、节奏紧凑的故事大纲，包含 {chapter_count} 个章节。
 每个章节需要有明确的核心冲突和情感弧线，章节之间需要有因果递进关系。
+{"如果提供了角色和世界观设定，请在大纲中合理利用这些设定，让情节自然地涉及这些角色和地点。" if story_context else ""}
 输出必须是严格的 JSON 数组格式。"""
         user_prompt = f"""类型：{genre}
 故事前提：{premise}
 {synopsis and f'故事简介：{synopsis}' or ''}
+
+{story_context}
 
 请生成一个包含{chapter_count}章的故事大纲，每章包含：
 - title: 章节标题（含章节序号，如"第一章：xxxx"）
@@ -512,17 +523,23 @@ def brainstorm():
     premise = data.get("premise", "")
     characters = data.get("characters") or []
     relationships = data.get("relationships") or []
+    locations = data.get("locations") or []
+    outline = data.get("outline") or []
 
     if not idea:
         return jsonify({"success": False, "error": "请输入你的想法"}), 400
 
-    story_context = build_story_context(characters, relationships)
+    # 策略性截断：位置最多5个，大纲最多10条，避免过度锚定
+    trimmed_locations = locations[:5] if locations else []
+    trimmed_outline = outline[:10] if outline else []
+
+    story_context = build_story_context(characters, relationships, trimmed_locations, trimmed_outline)
 
     system_prompt = f"""你是一位创意小说策划，专精于{genre}类型。
-针对用户的想法，结合已有的角色和关系设定，生成 3 个不同的创作方向建议，每个建议包含：
+针对用户的想法，结合已有的角色、关系和世界观设定，生成 3 个不同的创作方向建议，每个建议包含：
 - 一个吸引人的方向标题
 - 简要的情节发展思路（50-100字）
-如果提供了角色关系信息，请让生成的方向尽量利用这些角色和关系。
+如果提供了角色关系或世界观信息，请让生成的方向尽量利用这些设定，但同时保持创意的发散性。
 输出 JSON 数组格式。"""
 
     user_prompt = f"""类型：{genre}
@@ -879,6 +896,221 @@ def create_character():
         return jsonify({"success": False, "error": str(e)}), 500
     except Exception as e:
         return jsonify({"success": False, "error": f"创建角色失败: {str(e)}"}), 500
+
+
+# ==================== 批量生成 ====================
+
+MOCK_BATCH_CHARACTERS = [
+    {"name": "林昊", "role": "主角", "description": "性格坚毅的年轻人，命运多舛但从未放弃", "traits": ["坚毅", "善良", "执着"], "appearance": "身材挺拔，目光如炬，常穿青色长衫", "backstory": "出身寒门，幼年丧父，凭借毅力一路成长。"},
+    {"name": "赵霜寒", "role": "反派", "description": "阴沉冷酷，但对往事有一丝执念", "traits": ["冷酷", "聪明", "偏执"], "appearance": "面容冷峻，眉间有疤，黑袍加身", "backstory": "曾是天才少年，因遭遇不公而走向黑暗。"},
+    {"name": "老陈", "role": "导师", "description": "看似邋遢的老者，实则深藏不露", "traits": ["睿智", "随和", "神秘"], "appearance": "白发苍苍，衣衫褴褛，眼中时有精光", "backstory": "来历不明，似乎洞知一切，总在关键时刻出现。"},
+    {"name": "苏灵儿", "role": "盟友", "description": "活泼灵动，擅长情报收集", "traits": ["机敏", "乐观", "忠诚"], "appearance": "面容清秀，行动如风，常带笑意", "backstory": "世家之后，因家族变故独自闯荡。"},
+]
+
+
+@novel_bp.route("/generate-characters", methods=["POST"])
+def generate_characters():
+    """AI 批量生成角色"""
+    data = request.get_json()
+    premise = data.get("premise", "")
+    genre = data.get("genre", "通用")
+    synopsis = data.get("synopsis", "")
+    count = data.get("count", 4)
+    existing_characters = data.get("existingCharacters", [])
+
+    try:
+        count = max(1, min(8, int(count)))
+    except (ValueError, TypeError):
+        count = 4
+
+    existing_context = ""
+    if existing_characters:
+        names = [c.get("name") for c in existing_characters if c.get("name")]
+        if names:
+            existing_context = f"\n已有角色：{'、'.join(names)}\n请注意不要与已有角色重名或定位冲突，生成的角色应当与已有角色形成互补和张力。"
+
+    system_prompt = f"""你是一位专业的{genre}类型小说角色设计师。
+根据提供的故事信息，设计 {count} 个角色，要求：
+- 角色之间有自然的关系和互动潜力
+- 每个角色都有独特的性格、外貌和背景
+- 角色的设定要服务于故事的整体叙事
+- 不要给角色分配id字段
+
+输出严格的 JSON 数组格式：
+[{{"name": "角色名", "role": "主角/配角/反派/导师/盟友/恋人/路人", "description": "角色描述（20-50字）", "traits": ["特征1", "特征2", "特征3"], "appearance": "外貌描述（20-40字）", "backstory": "背景故事简述（30-60字）"}}]"""
+
+    user_prompt = f"""类型：{genre}
+故事前提：{premise or '一个充满冒险和成长的故事'}
+{synopsis and f'故事简介：{synopsis}' or ''}
+请设计 {count} 个角色。{existing_context}
+
+只返回 JSON 数组，不要添加其他解释。"""
+
+    try:
+        result = generate_with_llm(user_prompt, system_prompt)
+
+        if result is None:
+            return jsonify({
+                "success": True,
+                "characters": MOCK_BATCH_CHARACTERS[:count],
+                "mock": True,
+                "message": "未配置 API Key，返回示例角色"
+            })
+
+        parsed = parse_json_from_response(result, r'\[.*\]')
+        if parsed and isinstance(parsed, list):
+            for char in parsed:
+                char.setdefault("name", "未命名角色")
+                char.setdefault("role", "配角")
+                char.setdefault("description", "")
+                char.setdefault("traits", [])
+                char.setdefault("appearance", "")
+                char.setdefault("backstory", "")
+            return jsonify({"success": True, "characters": parsed})
+        else:
+            return jsonify({
+                "success": True,
+                "characters": MOCK_BATCH_CHARACTERS[:count],
+                "mock": True,
+                "message": "AI 返回格式异常，使用示例角色"
+            })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"生成角色失败: {str(e)}"}), 500
+
+
+MOCK_BATCH_LOCATIONS = [
+    {"name": "凌霄城", "type": "city", "description": "雄伟的古城，矗立于云海之上。城墙由千年寒铁铸就，城中灵气充沛，是修炼者的圣地。", "significance": "故事的主要舞台，各方势力交汇之处"},
+    {"name": "幽冥谷", "type": "wilderness", "description": "终年雾气弥漫的深谷，传闻中通往冥界的入口。谷中瘴气弥漫，寻常人难以涉足。", "significance": "主角觉醒力量的地方，也是重要秘密的藏匿之处"},
+    {"name": "天机阁", "type": "building", "description": "建于悬崖之上的古老楼阁，藏有天下奇书无数。阁主神秘莫测，似与各势力都有联系。", "significance": "情报网的中心，主角多次获得关键信息的地方"},
+]
+
+
+@novel_bp.route("/generate-locations", methods=["POST"])
+def generate_locations():
+    """AI 批量生成地点"""
+    data = request.get_json()
+    premise = data.get("premise", "")
+    genre = data.get("genre", "通用")
+    synopsis = data.get("synopsis", "")
+    count = data.get("count", 3)
+    existing_locations = data.get("existingLocations", [])
+    characters = data.get("characters", [])
+
+    try:
+        count = max(1, min(6, int(count)))
+    except (ValueError, TypeError):
+        count = 3
+
+    existing_context = ""
+    if existing_locations:
+        names = [l.get("name") for l in existing_locations if l.get("name")]
+        if names:
+            existing_context = f"\n已有地点：{'、'.join(names)}\n请注意不要与已有地点重名，生成的地点应与已有地点形成合理的空间或逻辑关联。"
+
+    char_context = ""
+    if characters:
+        char_names = [c.get("name") for c in characters if c.get("name")]
+        if char_names:
+            char_context = f"\n故事角色：{'、'.join(char_names)}。请在地点描述中自然地暗示这些角色与地点的关联。"
+
+    system_prompt = f"""你是一位专业的{genre}类型小说世界观设计师。
+根据提供的故事信息，设计 {count} 个故事关键地点，要求：
+- 每个地点有独特的氛围和故事重要性
+- 地点之间有合理的空间或逻辑联系
+- 不要给地点分配id字段
+
+输出严格的 JSON 数组格式：
+[{{"name": "地点名", "type": "city/village/wilderness/realm/building/other", "description": "详细描述（50-100字，包含氛围和特征）", "significance": "剧情意义（20-40字）"}}]"""
+
+    user_prompt = f"""类型：{genre}
+故事前提：{premise or '一个充满冒险和成长的故事'}
+{synopsis and f'故事简介：{synopsis}' or ''}{char_context}{existing_context}
+请设计 {count} 个地点。
+
+只返回 JSON 数组，不要添加其他解释。"""
+
+    try:
+        result = generate_with_llm(user_prompt, system_prompt)
+
+        if result is None:
+            return jsonify({
+                "success": True,
+                "locations": MOCK_BATCH_LOCATIONS[:count],
+                "mock": True,
+                "message": "未配置 API Key，返回示例地点"
+            })
+
+        parsed = parse_json_from_response(result, r'\[.*\]')
+        if parsed and isinstance(parsed, list):
+            for loc in parsed:
+                loc.setdefault("name", "未命名地点")
+                loc.setdefault("type", "other")
+                loc.setdefault("description", "")
+                loc.setdefault("significance", "")
+            return jsonify({"success": True, "locations": parsed})
+        else:
+            return jsonify({
+                "success": True,
+                "locations": MOCK_BATCH_LOCATIONS[:count],
+                "mock": True,
+                "message": "AI 返回格式异常，使用示例地点"
+            })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"生成地点失败: {str(e)}"}), 500
+
+
+@novel_bp.route("/generate-location", methods=["POST"])
+def generate_location():
+    """AI 生成单个地点的详细描述"""
+    data = request.get_json()
+    name = data.get("name", "")
+    type_ = data.get("type", "city")
+    genre = data.get("genre", "通用")
+    premise = data.get("premise", "")
+
+    if not name:
+        return jsonify({"success": False, "error": "请提供地点名称"}), 400
+
+    system_prompt = f"""你是一位专业的{genre}类型小说世界观设计师。
+根据用户提供的地点基本信息，生成详细的地点设定，包括：
+- description: 详细描述（80-150字，包含地理特征、氛围、历史文化等）
+- significance: 剧情意义（20-40字，说明这个地点在故事中的重要作用）
+输出 JSON 格式。"""
+
+    user_prompt = f"""地点名称：{name}
+地点类型：{type_}
+故事类型：{genre}
+{premise and f'故事背景：{premise}' or ''}
+
+返回 JSON：
+{{"description": "...", "significance": "..."}}"""
+
+    try:
+        result = generate_with_llm(user_prompt, system_prompt)
+
+        if result is None:
+            mock_data = {
+                "description": f"{name}是一处充满故事的地方。古老的建筑与自然景观交织，空气中弥漫着历史的气息。这里曾经发生过许多重要事件，每一条街道都藏着不为人知的秘密。",
+                "significance": "故事发展的重要舞台，关键情节在此上演。"
+            }
+            return jsonify({"success": True, "location": mock_data, "mock": True, "message": "未配置 API Key，返回示例描述"})
+
+        parsed = parse_json_from_response(result, r'\{.*\}')
+        if parsed and isinstance(parsed, dict):
+            parsed.setdefault("description", "")
+            parsed.setdefault("significance", "")
+            return jsonify({"success": True, "location": parsed})
+        else:
+            mock_data = {
+                "description": f"{name}是一处充满故事的地方。",
+                "significance": "故事中的重要地点。"
+            }
+            return jsonify({"success": True, "location": mock_data, "mock": True, "message": "AI 返回格式异常，使用示例描述"})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"生成地点失败: {str(e)}"}), 500
 
 
 # ==================== 统计和草稿 ====================

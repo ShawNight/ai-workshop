@@ -226,7 +226,7 @@ const performSave = useCallback(async () => {
       />
 
       <div className="flex flex-1 overflow-hidden min-h-0">
-        <EditorSidebar activeTab={activeTab} onTabChange={setActiveTab} />
+        <EditorSidebar activeTab={activeTab} onTabChange={setActiveTab} project={currentProject} />
 
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {activeTab === 'outline' && (

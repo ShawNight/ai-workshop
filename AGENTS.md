@@ -52,12 +52,16 @@ cd frontend && npm run lint                    # ESLint 检查
 | `GET` | `/projects/<id>` | 获取单个项目 |
 | `PUT` | `/projects/<id>` | 更新项目（支持所有字段部分更新） |
 | `DELETE` | `/projects/<id>` | 删除项目（级联删除关联数据） |
-| `POST` | `/generate-outline` | AI 生成层级大纲（输入 premise/genre/synopsis） |
+| `POST` | `/generate-outline` | AI 生成层级大纲（支持 characters/relationships/locations 上下文） |
 | `POST` | `/generate-chapter` | AI 生成章节（支持 characters/relationships/locations/outline 上下文） |
-| `POST` | `/continue-chapter` | AI 续写章节（从断点自然延续，支持角色上下文） |
+| `POST` | `/continue-chapter` | AI 续写章节（从断点自然延续，支持角色和世界上下文） |
 | `POST` | `/rewrite` | AI 改写选中文本（支持角色上下文保持人设一致） |
-| `POST` | `/brainstorm` | AI 头脑风暴（基于角色关系生成创作方向） |
-| `POST` | `/character` | AI 创建角色（生成 traits/appearance/backstory） |
+| `POST` | `/brainstorm` | AI 头脑风暴（支持 characters/relationships/locations/outline 上下文，策略性截断） |
+| `POST` | `/character` | AI 创建单个角色（生成 traits/appearance/backstory） |
+| `POST` | `/generate-characters` | AI 批量生成角色（1-8个，支持已有角色避重名） |
+| `POST` | `/generate-locations` | AI 批量生成地点（1-6个，支持角色关联） |
+| `POST` | `/generate-location` | AI 生成单个地点详情（根据名称+类型生成描述和剧情意义） |
+| `POST` | `/chat` | AI 多轮对话（character/world/character_relation 模式） |
 | `GET` | `/projects/<id>/stats` | 获取写作统计 |
 | `POST` | `/projects/<id>/drafts/<chapterId>` | 保存章节草稿版本 |
 | `GET` | `/projects/<id>/drafts/<chapterId>` | 获取章节版本历史 |
@@ -87,7 +91,8 @@ HOST=0.0.0.0
 
 - `frontend/src/components/music/*` - 歌词编辑器、音乐播放器、歌词同步显示
 - `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴
-- `frontend/src/components/novel/tabs/*` - 大纲 Tab、角色 Tab、世界观 Tab、设定 Tab、导出 Tab
+- `frontend/src/components/novel/tabs/*` - 大纲 Tab、角色 Tab（含批量生成+审阅+内联编辑）、世界观 Tab（含批量生成+审阅+内联编辑+AI生成描述）、设定 Tab、导出 Tab
+- `frontend/src/components/novel/chat/*` - AI 对话面板（character/world/relation 模式）、建议卡片
 - `frontend/src/components/workflow/*` - 画布、节点面板、节点编辑器
 - `frontend/src/components/ui/*` - shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress)
 
@@ -98,6 +103,35 @@ HOST=0.0.0.0
 | `/novel` | NovelListPage | 项目列表，卡片网格 + 新建弹窗 |
 | `/novel/:projectId` | NovelEditorPage | 项目编辑器（大纲/角色/世界观/统计/设定/导出 6 个 Tab） |
 | `/novel/:projectId/write/:chapterId` | ChapterWritePage | 全屏专注写作模式 |
+
+## 小说创作功能设计
+
+### 角色 Tab 功能
+- **手动添加角色**: 填写名称+定位+描述，点击"AI 生成性格特征"自动补全 traits/appearance/backstory
+- **AI 批量生成**: 根据故事设定一键生成 1-8 个角色，进入审阅区逐个采纳/编辑/丢弃或全部操作
+- **内联编辑**: 展开角色卡片后可编辑所有字段（名称/定位/描述/外貌/背景/性格特征标签增删改）
+- **AI 深入探讨**: 每个角色可打开 ChatPanel，AI 可返回 update_character/add_trait/create_relationship 等建议
+- **删除确认**: 删除角色时弹出确认框，显示关联关系数量
+
+### 世界观 Tab 功能
+- **手动添加地点**: 填写名称+类型+描述+剧情意义
+- **AI 批量生成**: 根据故事设定一键生成 1-6 个地点（传入已有角色以建立自然关联），进入审阅区
+- **AI 生成描述**: 创建地点时填入名称后，可点击"AI 生成描述"自动补全描述和剧情意义
+- **内联编辑**: 展开地点卡片后可编辑所有字段（名称/类型/描述/剧情意义）
+- **AI 深入探讨**: 每个地点可打开 ChatPanel，AI 可返回 update_location/add_location_detail/create_location 等建议
+- **删除确认**: 删除地点时弹出确认框
+
+### 大纲生成
+- 生成大纲时自动传入当前项目的 characters/relationships/locations 作为上下文
+- AI 在设计大纲时会参照已有的角色和世界观设定
+
+### 头脑风暴
+- 传入 characters/relationships/locations(最多5个)/outline(最多10条) 作为上下文
+- 策略性截断避免过度锚定，保持创意发散性
+
+### EditorSidebar 引导
+- 当项目无角色、无地点、无章节时，侧边栏底部显示"创作建议"提示卡片
+- Tab 标签旁显示角色和地点数量
 
 ## 数据库 Schema
 
