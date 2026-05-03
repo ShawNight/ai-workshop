@@ -11,6 +11,7 @@ import requests
 from datetime import datetime
 from database import get_connection
 from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_LYRICS_MODEL, LLM_CHAT_MODEL, LLM_MUSIC_MODEL, get_proxies
+from prompts import render
 
 music_bp = Blueprint("music", __name__)
 
@@ -56,13 +57,7 @@ def generate_song_title_with_llm(theme, mood, genre, lyrics_preview):
         return sanitize_filename(theme) or "AI创作歌曲"
 
     try:
-        prompt = f"""请根据以下信息为歌曲生成一个简短、优美的歌名（不超过10个字）：
-
-主题：{theme}
-风格：{mood} {genre}
-歌词片段：{lyrics_preview[:200]}
-
-只返回歌名本身，不要加任何前缀、引号或解释。"""
+        prompt = render('music/song_title.j2', theme=theme, mood=mood, genre=genre, lyrics_preview=lyrics_preview[:200])
 
         response = requests.post(
             LLM_CHAT_URL,
@@ -219,15 +214,7 @@ def generate_prompt():
     if not LLM_API_KEY:
         return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
 
-    system_msg = """你是一个JSON生成器。你必须直接输出JSON对象，不要输出任何思考过程、解释或额外文字。
-不要使用<think>标签，不要推理，直接输出JSON。"""
-
-    prompt_text = f"""根据用户描述生成歌曲创作提示词。
-
-用户描述：{user_description}
-
-直接返回如下格式的JSON，不要包含任何其他文字：
-{{"theme":"春天","mood":"欢快","genre":"流行","description":"描述万物复苏的美好景象"}}"""
+    prompts = render('music/prompt_gen.j2', user_description=user_description)
 
     try:
         response = requests.post(
@@ -235,8 +222,8 @@ def generate_prompt():
             json={
                 "model": LLM_CHAT_MODEL,
                 "messages": [
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": prompt_text}
+                    {"role": "system", "content": prompts['system']},
+                    {"role": "user", "content": prompts['user']}
                 ],
                 "temperature": 0.7,
                 "max_tokens": 1024
@@ -613,19 +600,7 @@ def generate_lrc():
         secs = int(duration) % 60
         duration_hint = f"歌曲总时长为{mins}分{secs}秒（{duration}秒），"
 
-    prompt = f"""你是一位专业的歌词时间标注专家。请为以下歌词生成 LRC 格式的时间戳。
-
-{duration_hint}请根据段落结构和歌词内容，为每一行歌词分配合理的时间戳。
-
-要求：
-1. 返回标准 LRC 格式，每行格式为 [mm:ss.xx]歌词内容
-2. 前奏/间奏/尾奏的纯器乐部分用 [mm:ss.xx][Instrumental] 标注
-3. 时间戳必须严格递增
-4. 确保最后一行时间戳不超过总时长
-5. 只返回 LRC 内容，不要任何解释
-
-歌词内容：
-{lyrics}"""
+    prompts = render('music/lrc.j2', lyrics=lyrics, duration_hint=duration_hint)
 
     try:
         response = requests.post(
@@ -633,8 +608,8 @@ def generate_lrc():
             json={
                 "model": LLM_CHAT_MODEL,
                 "messages": [
-                    {"role": "system", "content": "你是LRC歌词时间标注专家，只输出LRC格式内容，不输出任何解释或思考过程。"},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": prompts['system']},
+                    {"role": "user", "content": prompts['user']}
                 ],
                 "temperature": 0.3,
                 "max_tokens": 2048
@@ -703,24 +678,7 @@ def modify_lyrics():
         return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
 
     # 构建 Prompt - 不依赖mood/genre，让AI自动判断风格
-    prompt = f"""你是一位专业的歌词修改助手。用户希望修改歌曲中的部分歌词。
-
-当前歌曲完整歌词：
-{full_lyrics}
-
-用户选中要修改的部分：
-"{selected_text}"
-
-用户修改意见：
-"{suggestion}"
-
-请根据用户的修改意见和原歌曲风格，修改选中的这部分歌词。要求：
-1. 只返回修改后的新内容（替换选中部分的内容）
-2. 保持与原歌曲整体风格一致
-3. 如果选中的是一行或多行，返回相同行数的内容
-4. 不要添加任何解释或前缀，直接返回修改后的歌词内容
-
-修改后的内容："""
+    prompt = render('music/lyrics_modify.j2', full_lyrics=full_lyrics, selected_text=selected_text, suggestion=suggestion)
 
     try:
         response = requests.post(
