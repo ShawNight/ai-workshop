@@ -1,12 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, ChevronRight, ChevronDown, Maximize2, Trash2 } from 'lucide-react';
+import { Sparkles, ChevronRight, ChevronDown, ChevronUp, Maximize2, Trash2 } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { toast } from '../../ui/Toast';
 import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
 import { AppendOutlineModal } from '../AppendOutlineModal';
 import { generateId } from '../../../utils/formatContent';
+import { ConfirmDialog } from '../../ui/ConfirmDialog';
 
 function appendOutlineToChapters(existingChapters, newOutline, startIndex) {
   const newChapters = newOutline.map((item, i) => ({
@@ -28,6 +29,7 @@ export function OutlineTab() {
   const [showOutlineModal, setShowOutlineModal] = useState(false);
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -100,6 +102,24 @@ export function OutlineTab() {
       chapters: chapters.filter((c) => c.id !== chapterId),
     });
     markUnsaved();
+  };
+
+  const handleMoveChapter = useCallback((chapterId, direction) => {
+    const updated = [...(currentProject.chapters || [])];
+    const idx = updated.findIndex((c) => c.id === chapterId);
+    if (idx < 0) return;
+    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= updated.length) return;
+    [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
+    updateProject(currentProject.id, { chapters: updated });
+    markUnsaved();
+  }, [currentProject, updateProject, markUnsaved]);
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      handleDeleteChapter(deleteTarget);
+      setDeleteTarget(null);
+    }
   };
 
   const handleUpdateChapter = (chapterId, updates) => {
@@ -218,6 +238,22 @@ export function OutlineTab() {
                   )}
                   <div className="flex items-center gap-0.5 flex-shrink-0" style={{ opacity: 1 }}>
                     <button
+                      onClick={(e) => { e.stopPropagation(); handleMoveChapter(chapter.id, 'up'); }}
+                      className="p-1 rounded hover:bg-[var(--surface)] text-[var(--text-secondary)]"
+                      disabled={idx === 0}
+                      title="上移"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleMoveChapter(chapter.id, 'down'); }}
+                      className="p-1 rounded hover:bg-[var(--surface)] text-[var(--text-secondary)]"
+                      disabled={idx === chapters.length - 1}
+                      title="下移"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       onClick={(e) => { e.stopPropagation(); navigate(`/novel/${currentProject.id}/write/${chapter.id}`); }}
                       className="p-1 rounded hover:bg-[var(--surface)] text-[var(--text-secondary)]"
                       title="全屏写作"
@@ -225,7 +261,7 @@ export function OutlineTab() {
                       <Maximize2 className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteChapter(chapter.id); }}
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(chapter.id); }}
                       className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
                       title="删除"
                     >
@@ -262,6 +298,13 @@ export function OutlineTab() {
         onGenerate={handleGenerateOutline}
         chapterCount={chapterCount}
         hasExisting={chapters.length > 0}
+      />
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        title="删除章节"
+        message="确定要删除这个章节吗？此操作不可撤销。"
       />
     </div>
   );

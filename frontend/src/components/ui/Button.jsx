@@ -4,7 +4,8 @@ const variants = {
   primary: 'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)]',
   secondary: 'bg-[var(--secondary)] text-white hover:opacity-90',
   outline: 'border border-[var(--border)] bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800',
-  ghost: 'bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
+  ghost: 'bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800',
+  destructive: 'bg-red-600 text-white hover:bg-red-700'
 };
 
 const sizes = {
