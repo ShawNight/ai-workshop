@@ -1,10 +1,10 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { BookOpen, Maximize2, History } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
-import { useSave } from '../hooks/useSave';
+import { useAutoSave } from '../hooks/useAutoSave';
 import { EditorToolbar } from '../components/novel/EditorToolbar';
 import { EditorSidebar } from '../components/novel/EditorSidebar';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
@@ -28,7 +28,7 @@ export function NovelEditorPage() {
     isGeneratingChapter, setIsGeneratingChapter,
     updateProject,
   } = useNovelStore();
-  const { save } = useSave();
+  const { save } = useAutoSave(currentProject?.id, editingChapterId);
 
   const handleBack = useCallback(() => {
     navigate('/novel');
@@ -43,17 +43,6 @@ export function NovelEditorPage() {
       clearCurrentProject();
     };
   }, [projectId]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (useNovelStore.getState().isEditorDirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
 
   const loadProject = async () => {
     try {
@@ -70,21 +59,7 @@ export function NovelEditorPage() {
     }
   };
 
-const performSave = useCallback(async () => {
-    const ok = await save();
-    if (ok) {
-      const proj = useNovelStore.getState().currentProject;
-      if (editingChapterId) {
-        const ch = (proj?.chapters || []).find((c) => c.id === editingChapterId);
-        if (ch?.content) {
-          novelApi.saveDraft(proj.id, editingChapterId, {
-            content: ch.content,
-            wordCount: (ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length,
-          }).catch(() => {});
-        }
-      }
-    }
-  }, [editingChapterId, save]);
+
 
   const handleChapterContentChange = useCallback(({ html }) => {
     if (!currentProject || !editingChapterId) return;
@@ -221,7 +196,7 @@ const formatted = formatAIContent(res.data.content);
         lastSavedAt={lastSavedAt}
         wordCount={totalWords}
         onBack={handleBack}
-        onSave={performSave}
+        onSave={save}
       />
 
       <div className="flex flex-1 overflow-hidden min-h-0">

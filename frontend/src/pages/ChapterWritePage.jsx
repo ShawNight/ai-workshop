@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Check, AlertCircle, Loader2, Maximize2, Minimize2, History } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
-import { useSave } from '../hooks/useSave';
+import { useAutoSave } from '../hooks/useAutoSave';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
@@ -19,9 +19,8 @@ export function ChapterWritePage() {
     isGeneratingChapter, setIsGeneratingChapter,
     saveStatus, lastSavedAt, markUnsaved,
   } = useNovelStore();
-  const { save } = useSave();
+  const { save } = useAutoSave(projectId, chapterId);
 
-  const autoSaveTimer = useRef(null);
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [activeAction, setActiveAction] = useState(null);
   const [showBrainstorm, setShowBrainstorm] = useState(false);
@@ -30,17 +29,6 @@ export function ChapterWritePage() {
   useEffect(() => {
     loadProject();
   }, [projectId]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (useNovelStore.getState().isEditorDirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
 
   const loadProject = async () => {
     try {
@@ -59,19 +47,7 @@ export function ChapterWritePage() {
 
   const chapter = currentProject?.chapters?.find((c) => c.id === chapterId);
 
-  const performSave = useCallback(async () => {
-    const ok = await save();
-    if (ok && chapterId) {
-      const proj = useNovelStore.getState().currentProject;
-      const ch = (proj?.chapters || []).find((c) => c.id === chapterId);
-      if (ch?.content) {
-        novelApi.saveDraft(proj.id, chapterId, {
-          content: ch.content,
-          wordCount: (ch.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length,
-        }).catch(() => {});
-      }
-    }
-  }, [chapterId, save]);
+  
 
   const handleContentChange = useCallback(({ html }) => {
     if (!currentProject || !chapterId) return;
@@ -232,7 +208,7 @@ export function ChapterWritePage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => performSave()}
+            onClick={() => save()}
             disabled={saveStatus === 'saving'}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
               saveStatus === 'unsaved'
