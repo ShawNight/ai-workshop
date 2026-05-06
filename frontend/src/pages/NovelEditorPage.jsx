@@ -5,6 +5,7 @@ import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
 import { useAutoSave } from '../hooks/useAutoSave';
+import { useChapterActions } from '../hooks/useChapterActions';
 import { EditorToolbar } from '../components/novel/EditorToolbar';
 import { EditorSidebar } from '../components/novel/EditorSidebar';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
@@ -16,7 +17,6 @@ import { SettingsTab } from '../components/novel/tabs/SettingsTab';
 import { ExportTab } from '../components/novel/tabs/ExportTab';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
-import { formatAIContent } from '../utils/formatContent';
 
 export function NovelEditorPage() {
   const { projectId } = useParams();
@@ -25,10 +25,11 @@ export function NovelEditorPage() {
     currentProject, setCurrentProject, clearCurrentProject,
     activeTab, setActiveTab, editingChapterId, setEditingChapterId,
     saveStatus, lastSavedAt, markUnsaved,
-    isGeneratingChapter, setIsGeneratingChapter,
+    isGeneratingChapter,
     updateProject,
   } = useNovelStore();
   const { save } = useAutoSave(currentProject?.id, editingChapterId);
+  const { generateChapter, continueChapter } = useChapterActions();
 
   const handleBack = useCallback(() => {
     navigate('/novel');
@@ -69,99 +70,6 @@ export function NovelEditorPage() {
     updateProject(currentProject.id, { chapters });
     markUnsaved();
   }, [currentProject, editingChapterId, updateProject, markUnsaved]);
-
-  const handleGenerateChapter = async () => {
-    if (!currentProject || !editingChapterId) return;
-    const chapter = (currentProject.chapters || []).find((c) => c.id === editingChapterId);
-    if (!chapter) return;
-
-    setIsGeneratingChapter(true);
-    try {
-      const prevIdx = currentProject.chapters.findIndex((c) => c.id === editingChapterId);
-      const prevContent = prevIdx > 0
-        ? (currentProject.chapters[prevIdx - 1]?.content || '').replace(/<[^>]+>/g, '')
-        : '';
-
-      const res = await novelApi.generateChapter({
-        chapterTitle: chapter.title,
-        premise: currentProject.premise,
-        genre: currentProject.genre,
-        previousContent: prevContent,
-        writingStyle: currentProject.writingStyle,
-        chapterDescription: chapter.description || '',
-        characters: currentProject.characters || [],
-        relationships: currentProject.relationships || [],
-        locations: currentProject.locations || [],
-        outline: currentProject.outline || [],
-      });
-
-      if (res.data.success) {
-        const formattedContent = formatAIContent(res.data.content);
-        const chapters = currentProject.chapters.map((c) =>
-          c.id === editingChapterId ? { ...c, content: formattedContent } : c
-        );
-        updateProject(currentProject.id, { chapters });
-        if (res.data.mock) toast.info(res.data.message);
-        else toast.success('章节生成成功');
-        markUnsaved();
-      }
-    } catch {
-      toast.error('章节生成失败');
-    } finally {
-      setIsGeneratingChapter(false);
-    }
-  };
-
-  const handleContinueChapter = async (selection) => {
-    if (!currentProject || !editingChapterId) return;
-    const chapter = (currentProject.chapters || []).find((c) => c.id === editingChapterId);
-    if (!chapter) return;
-
-    try {
-      const plainContent = (chapter.content || '').replace(/<[^>]+>/g, '');
-
-      if (selection?.text) {
-        const res = await novelApi.rewriteText({
-          selectedText: selection.text,
-          instruction: '优化这段文字，使表达更生动流畅',
-          genre: currentProject.genre,
-          context: (selection.contextBefore || '') + (selection.text || '') + (selection.contextAfter || ''),
-          characters: currentProject.characters || [],
-          relationships: currentProject.relationships || [],
-        });
-        if (res.data.success) {
-          const before = (chapter.content || '').substring(0, selection.from);
-          const after = (chapter.content || '').substring(selection.to);
-const formatted = formatAIContent(res.data.content);
-            const newContent = before + formatted + after;
-          handleChapterContentChange({ html: newContent, text: '' });
-          if (res.data.mock) toast.info(res.data.message);
-          else toast.success('改写完成');
-        }
-      } else {
-        const res = await novelApi.continueChapter({
-          currentContent: plainContent,
-          chapterTitle: chapter.title,
-          premise: currentProject.premise,
-          genre: currentProject.genre,
-          writingStyle: currentProject.writingStyle,
-          characters: currentProject.characters || [],
-          relationships: currentProject.relationships || [],
-          locations: currentProject.locations || [],
-          outline: currentProject.outline || [],
-        });
-        if (res.data.success) {
-const formatted = formatAIContent(res.data.content);
-            const newContent = (chapter.content || '') + formatted;
-          handleChapterContentChange({ html: newContent, text: '' });
-          if (res.data.mock) toast.info(res.data.message);
-          else toast.success('续写完成');
-        }
-      }
-    } catch {
-      toast.error('操作失败');
-    }
-  };
 
   const handleApplyBrainstormIdea = (item) => {
     const chapter = (currentProject?.chapters || []).find((c) => c.id === editingChapterId);
@@ -234,8 +142,8 @@ const formatted = formatAIContent(res.data.content);
                 <ChapterEditor
                   chapter={editingChapter}
                   onContentChange={handleChapterContentChange}
-                  onGenerate={handleGenerateChapter}
-                  onContinue={handleContinueChapter}
+onGenerate={generateChapter}
+                  onContinue={continueChapter}
                   onBrainstorm={() => setShowBrainstorm(true)}
                   isGenerating={isGeneratingChapter}
                 />
