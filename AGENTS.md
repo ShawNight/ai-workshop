@@ -151,7 +151,7 @@ HOST=0.0.0.0
 
 ## 编码规范
 
-- **Git commit 信息使用中文**，格式：`类型: 描述`，如 `功能: 增加自动保存`、`修复: 修复章节排序问题`、`重构: 提取共享工具函数`
+- **Git commit 信息**：前缀用标准英文 Conventional Commits 格式（feat/fix/refactor/docs/chore 等），描述用中文，如 `feat: 增加自动保存`、`fix: 修复章节排序问题`、`refactor: 提取共享工具函数`
 - **不添加注释**，除非用户明确要求
 - **前端代码风格**: 纯 JSX，无 TypeScript，无 PropTypes
 - **共享工具**: 格式化函数在 `frontend/src/utils/formatContent.js`，常量在 `frontend/src/constants/novel.js`，ID 生成用 `generateId()` from `utils/formatContent`
