@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Check, AlertCircle, Loader2, Maximize2, Minimize2, History, StickyNote } from 'lucide-react';
+import { ArrowLeft, Save, Check, AlertCircle, Loader2, Maximize2, Minimize2, History, StickyNote, UserPlus } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
@@ -11,6 +11,8 @@ import { ChapterEditor } from '../components/novel/ChapterEditor';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
 import { NotesDrawer } from '../components/novel/NotesDrawer';
+import { SummarySuggestion } from '../components/novel/SummarySuggestion';
+import { EntityExtractor } from '../components/novel/EntityExtractor';
 import { formatSaveTime } from '../utils/formatSaveTime';
 
 export function ChapterWritePage() {
@@ -22,7 +24,7 @@ export function ChapterWritePage() {
     saveStatus, lastSavedAt, markUnsaved,
   } = useNovelStore();
   const { save } = useAutoSave(projectId, chapterId);
-  const { generateChapter, continueChapter } = useChapterActions(chapterId);
+  const { generateChapter, continueChapter, suggestion, setSuggestion } = useChapterActions(chapterId);
 
   useHotkeys({
     'ctrl+s': () => save(),
@@ -35,6 +37,7 @@ export function ChapterWritePage() {
   const [showBrainstorm, setShowBrainstorm] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [extractedEntities, setExtractedEntities] = useState(null);
 
   useEffect(() => {
     loadProject();
@@ -93,6 +96,72 @@ export function ChapterWritePage() {
 
   const handleBack = () => {
     navigate(`/novel/${projectId}`);
+  };
+
+  const handleAcceptSuggestion = ({ title, description }) => {
+    if (!currentProject || !suggestion) return;
+    const chId = suggestion.chapterId;
+    const chapters = (currentProject.chapters || []).map((c) => {
+      if (c.id !== chId) return c;
+      return { ...c, title: title || c.title, description: description || c.description };
+    });
+    const outline = (currentProject.outline || []).map((item, idx) => {
+      const chapterIdx = chapters.findIndex((c) => c.id === chId);
+      if (chapterIdx < 0 || idx !== chapterIdx) return item;
+      return { ...item, title: title || item.title, description: description || item.description };
+    });
+    updateProject(currentProject.id, { chapters, outline });
+    markUnsaved();
+    setSuggestion(null);
+    toast.success('章节概要已更新');
+  };
+
+  const handleExtractEntities = async () => {
+    if (!currentProject || !chapter) return;
+    const plainContent = (chapter.content || '').replace(/<[^>]+>/g, '');
+    if (!plainContent.trim()) {
+      toast.error('章节内容为空，无法提取');
+      return;
+    }
+    try {
+      const res = await novelApi.extractEntities({
+        content: plainContent,
+        existingCharacters: (currentProject.characters || []).map((c) => ({ name: c.name, role: c.role })),
+        existingLocations: (currentProject.locations || []).map((l) => ({ name: l.name, type: l.type })),
+        genre: currentProject.genre || '通用',
+        premise: currentProject.premise || '',
+      });
+      if (res.data.success) {
+        const chars = res.data.characters || [];
+        const locs = res.data.locations || [];
+        if (chars.length === 0 && locs.length === 0) {
+          toast.info('未发现新的角色或地点');
+        } else {
+          setExtractedEntities({ characters: chars, locations: locs });
+        }
+      } else {
+        toast.error(res.data.error || '提取失败');
+      }
+    } catch {
+      toast.error('提取实体失败');
+    }
+  };
+
+  const handleAcceptEntities = ({ characters, locations }) => {
+    if (!currentProject) return;
+    const updates = {};
+    if (characters.length > 0) {
+      updates.characters = [...(currentProject.characters || []), ...characters];
+    }
+    if (locations.length > 0) {
+      updates.locations = [...(currentProject.locations || []), ...locations];
+    }
+    if (Object.keys(updates).length > 0) {
+      updateProject(currentProject.id, updates);
+      markUnsaved();
+      toast.success(`已添加 ${characters.length} 个角色和 ${locations.length} 个地点`);
+    }
+    setExtractedEntities(null);
   };
 
   if (!currentProject || !chapter) {
@@ -175,6 +244,14 @@ export function ChapterWritePage() {
             </svg>
           </button>
           <button
+            onClick={handleExtractEntities}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg hover:bg-[var(--background)] text-[var(--text-secondary)] border border-[var(--border)]"
+            title="从正文中提取新角色和地点"
+          >
+            <UserPlus size={16} />
+            <span>提取角色</span>
+          </button>
+          <button
             onClick={() => setIsFocusMode(!isFocusMode)}
             className="p-1.5 rounded-lg hover:bg-[var(--background)] text-[var(--text-secondary)]"
             title={isFocusMode ? '退出专注模式' : '专注模式'}
@@ -186,6 +263,20 @@ export function ChapterWritePage() {
 
       {/* Editor */}
       <div className="flex-1 overflow-hidden min-h-0">
+        {suggestion && (
+          <SummarySuggestion
+            suggestion={suggestion}
+            onAccept={handleAcceptSuggestion}
+            onDismiss={() => setSuggestion(null)}
+          />
+        )}
+        {extractedEntities && (
+          <EntityExtractor
+            entities={extractedEntities}
+            onAccept={handleAcceptEntities}
+            onDismiss={() => setExtractedEntities(null)}
+          />
+        )}
         <ChapterEditor
           chapter={chapter}
           onContentChange={handleContentChange}
