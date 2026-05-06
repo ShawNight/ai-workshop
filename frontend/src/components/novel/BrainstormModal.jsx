@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { X, Lightbulb, Sparkles, Loader2 } from 'lucide-react';
+import { X, Lightbulb, Sparkles, Loader2, StickyNote } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Input';
 import { toast } from '../ui/Toast';
 import { novelApi } from '../../api';
 import { useNovelStore } from '../../store/novelStore';
+import { generateId } from '../../utils/formatContent';
 
-export function BrainstormModal({ isOpen, onClose, onApplyIdea }) {
+export function BrainstormModal({ isOpen, onClose, onApplyIdea, onSaveNote }) {
   const { currentProject } = useNovelStore();
   const [idea, setIdea] = useState('');
   const [results, setResults] = useState([]);
@@ -81,17 +82,34 @@ export function BrainstormModal({ isOpen, onClose, onApplyIdea }) {
                       <h4 className="font-medium text-sm">{item.title}</h4>
                       <p className="text-sm text-[var(--text-secondary)] mt-1">{item.description}</p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        onApplyIdea?.(item);
-                        onClose();
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                    >
-                      采用
-                    </Button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          onSaveNote?.({
+                            id: generateId(),
+                            type: 'brainstorm',
+                            content: item.title + ': ' + item.description + (item.keyPoints ? '\n关键: ' + item.keyPoints.join('、') : ''),
+                            createdAt: Date.now(),
+                          });
+                          toast.success('已保存到笔记');
+                        }}
+                      >
+                        <StickyNote className="h-3 w-3" />
+                        存笔记
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          onApplyIdea?.(item);
+                          onClose();
+                        }}
+                      >
+                        采用
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}

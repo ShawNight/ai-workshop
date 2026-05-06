@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Check, AlertCircle, Loader2, Maximize2, Minimize2, History } from 'lucide-react';
+import { ArrowLeft, Save, Check, AlertCircle, Loader2, Maximize2, Minimize2, History, StickyNote } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
@@ -10,6 +10,7 @@ import { useHotkeys } from '../hooks/useHotkeys';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
+import { NotesDrawer } from '../components/novel/NotesDrawer';
 import { formatSaveTime } from '../utils/formatSaveTime';
 
 export function ChapterWritePage() {
@@ -33,6 +34,7 @@ export function ChapterWritePage() {
   const [activeAction, setActiveAction] = useState(null);
   const [showBrainstorm, setShowBrainstorm] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
 
   useEffect(() => {
     loadProject();
@@ -219,6 +221,27 @@ export function ChapterWritePage() {
         isOpen={showBrainstorm}
         onClose={() => setShowBrainstorm(false)}
         onApplyIdea={handleApplyBrainstormIdea}
+        onSaveNote={(note) => {
+          const notes = [...(currentProject?.notes || []), note];
+          updateProject(currentProject.id, { notes });
+          markUnsaved();
+          toast.success('已保存到笔记');
+        }}
+      />
+
+      <button
+        onClick={() => setShowNotes(!showNotes)}
+        className="fixed right-4 bottom-4 z-30 p-3 rounded-full bg-amber-500 text-white shadow-lg hover:bg-amber-600 transition-colors"
+        title="灵感笔记"
+      >
+        <StickyNote className="h-5 w-5" />
+      </button>
+
+      <NotesDrawer
+        isOpen={showNotes}
+        onClose={() => setShowNotes(false)}
+        notes={currentProject?.notes || []}
+        onNotesChange={(notes) => { updateProject(currentProject.id, { notes }); markUnsaved(); }}
       />
 
       <VersionHistory
