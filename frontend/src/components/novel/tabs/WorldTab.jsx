@@ -93,8 +93,7 @@ export function WorldTab() {
           description: locData.description || newLocation.description,
           significance: locData.significance || newLocation.significance,
         });
-        if (res.data.mock) toast.info(res.data.message || '使用示例描述');
-        else toast.success('AI 已生成地点描述');
+        toast.success('AI 已生成地点描述');
       } else {
         toast.error(res.data.error || '生成失败');
       }
@@ -169,8 +168,7 @@ export function WorldTab() {
           id: generateId(),
           createdAt: new Date().toISOString(),
         })));
-        if (res.data.mock) toast.info(res.data.message || '使用示例地点');
-        else toast.success(`已生成 ${res.data.locations.length} 个地点，请审阅`);
+        toast.success(`已生成 ${res.data.locations.length} 个地点，请审阅`);
       } else {
         toast.error(res.data.error || '生成失败');
       }

@@ -52,7 +52,6 @@ export function AppendOutlineModal({ isOpen, onClose, onGenerate, chapterCount: 
       if (res.data.success) {
         setDirections(res.data.directions || []);
         setStep(2);
-        if (res.data.mock) toast.info(res.data.message || '使用示例方案');
       } else {
         toast.error(res.data.error || '生成方案失败');
       }

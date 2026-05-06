@@ -33,7 +33,6 @@ export function BrainstormModal({ isOpen, onClose, onApplyIdea, onSaveNote }) {
       });
       if (res.data.success) {
         setResults(res.data.ideas || []);
-        if (res.data.mock) toast.info(res.data.message);
       } else {
         toast.error(res.data.error || '头脑风暴失败');
       }

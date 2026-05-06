@@ -80,13 +80,10 @@ export function OutlineTab() {
         updateProject(currentProject.id, { outline: newOutlineItems, chapters: updatedChapters });
         markUnsaved();
 
-        if (res.data.mock) toast.info(res.data.message);
-        else {
-          const msg = chapters.length > 0
-            ? `追加成功，新增 ${newOutline.length} 个章节`
-            : `大纲生成成功，已生成 ${newOutline.length} 个章节`;
-          toast.success(msg);
-        }
+        const msg = chapters.length > 0
+          ? `追加成功，新增 ${newOutline.length} 个章节`
+          : `大纲生成成功，已生成 ${newOutline.length} 个章节`;
+        toast.success(msg);
       } else {
         toast.error(res.data.error || '生成失败');
       }

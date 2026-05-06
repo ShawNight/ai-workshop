@@ -68,8 +68,7 @@ export function CharacterTab() {
           characters: [...characters, res.data.character],
         });
         markUnsaved();
-        if (res.data.mock) toast.info('已创建角色（使用示例性格特征）');
-        else toast.success('角色创建成功');
+        toast.success('角色创建成功');
         setNewName('');
         setNewDesc('');
         setNewRole('配角');
@@ -176,8 +175,7 @@ export function CharacterTab() {
           ...c,
           id: generateId(),
         })));
-        if (res.data.mock) toast.info(res.data.message || '使用示例角色');
-        else toast.success(`已生成 ${res.data.characters.length} 个角色，请审阅`);
+        toast.success(`已生成 ${res.data.characters.length} 个角色，请审阅`);
       } else {
         toast.error(res.data.error || '生成失败');
       }
