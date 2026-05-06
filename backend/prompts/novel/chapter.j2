@@ -11,9 +11,24 @@
 {% if chapter_description %}章节概要：{{ chapter_description }}{% endif %}
 故事类型：{{ genre }}
 故事背景：{{ premise or '一个充满悬念和惊喜的故事' }}
+
+{% if recent_summary %}
+【前文脉络】
+{{ recent_summary }}
+{% endif %}
+
 前文摘要：{{ previous_content or '（故事开篇）' }}
 
 {{ story_context }}
+
+{% if settings_context %}
+【角色与设定】
+{{ settings_context }}
+{% endif %}
+
+{% if current_outline %}
+本章大纲要点：{{ current_outline }}
+{% endif %}
 
 请创作本章节内容，要求：
 1. 字数在 1000-2000 字之间
@@ -21,3 +36,4 @@
 3. 适当的人物对话、心理描写和环境描写，对话要符合角色性格
 4. 与前文自然衔接
 5. 如果提供了角色列表，至少让其中 1-2 个角色在本章出场或产生情节推动
+6. 注意与前文脉络中描述的情节和角色发展保持一致

@@ -28,6 +28,11 @@ LLM_MUSIC_MODEL = os.getenv("LLM_MUSIC_MODEL", "music-2.6")
 PORT = int(os.getenv("PORT", "3001"))
 HOST = os.getenv("HOST", "0.0.0.0")
 
+# LLM 输出 token 限制配置（max_tokens 控制输出上限，模型会自然停止）
+LLM_MAX_TOKENS_CHAPTER = int(os.getenv("LLM_MAX_TOKENS_CHAPTER", "8192"))
+LLM_MAX_TOKENS_MEDIUM = int(os.getenv("LLM_MAX_TOKENS_MEDIUM", "4096"))
+LLM_MAX_TOKENS_SHORT = int(os.getenv("LLM_MAX_TOKENS_SHORT", "2048"))
+
 # 代理配置
 HTTP_PROXY = os.getenv("HTTP_PROXY", "")
 HTTPS_PROXY = os.getenv("HTTPS_PROXY", "")
