@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify
 
 from database import (
     create_novel_project, get_novel_project, get_all_novel_projects,
-    update_novel_project, delete_novel_project,
+    update_novel_project, delete_novel_project, update_chapter,
     create_writing_log, get_project_stats,
     save_chapter_draft, get_chapter_drafts, get_chapter_draft_content
 )
@@ -15,6 +15,7 @@ novel_bp = Blueprint("novel", __name__)
 
 from config import LLM_API_KEY, LLM_CHAT_URL, LLM_CHAT_MODEL, get_proxies
 from prompts import render
+from utils.token_budget import estimate_tokens, smart_truncate, allocate_context_budget
 
 # ==================== LLM 调用 ====================
 
@@ -56,7 +57,7 @@ MOCK_CHAPTER = """夜色如墨，星辰稀疏地挂在天空。
 但他们不再畏惧。"""
 
 
-def generate_with_llm(prompt, system_prompt="", messages=None):
+def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, max_tokens=4096):
     """调用 LLM API 生成内容。成功返回文本，失败或无 API key 返回 None。
     当传入 messages 时，直接使用该消息列表（用于多轮对话场景）。"""
     if not LLM_API_KEY:
@@ -74,8 +75,8 @@ def generate_with_llm(prompt, system_prompt="", messages=None):
             json={
                 "model": LLM_CHAT_MODEL,
                 "messages": messages,
-                "max_tokens": 4096,
-                "temperature": 0.7
+                "max_tokens": max_tokens,
+                "temperature": temperature
             },
             headers={
                 "Authorization": f"Bearer {LLM_API_KEY}",
@@ -273,6 +274,27 @@ def delete_project(project_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@novel_bp.route("/projects/<project_id>/chapters/<chapter_id>", methods=["PUT"])
+def update_chapter_route(project_id, chapter_id):
+    data = request.get_json() or {}
+    content = data.get('content')
+    title = data.get('title')
+    
+    if content is None and title is None:
+        return jsonify({'success': False, 'error': '至少需要提供 content 或 title'}), 400
+    
+    success = update_chapter(project_id, chapter_id, content=content, title=title)
+    if success:
+        project = get_novel_project(project_id)
+        chapter = next((c for c in project.get('chapters', []) if c.get('id') == chapter_id), None)
+        return jsonify({
+            'success': True,
+            'chapter': chapter,
+            'totalWordCount': project.get('current_word_count', 0)
+        })
+    return jsonify({'success': False, 'error': '章节未找到'}), 404
+
+
 # ==================== AI 生成端点 ====================
 
 @novel_bp.route("/generate-outline-directions", methods=["POST"])
@@ -316,12 +338,7 @@ def generate_outline_directions():
         story_context=story_context)
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
-
-        if result is None:
-            return jsonify({
-                "success": True,
-                "directions": MOCK_DIRECTIONS,
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.8, max_tokens=2048)
                 "mock": True,
                 "message": "未配置 API Key，返回示例方案"
             })
@@ -398,7 +415,7 @@ def generate_outline():
             chapter_count=chapter_count)
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=2048)
 
         mock_data = MOCK_OUTLINE if not has_existing else [
             {"title": f"第{len(existing_chapters) + i + 1}章：新篇章", "description": f"第{len(existing_chapters) + i + 1}章的精彩内容，故事继续展开。"}
@@ -530,7 +547,7 @@ def rewrite_text():
         instruction=instruction or "优化文笔，使表达更生动流畅，保持角色性格特征")
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.5, max_tokens=2048)
 
         if result is None:
             return jsonify({"success": True, "content": selected_text,
@@ -572,7 +589,7 @@ def brainstorm():
         idea=idea)
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.9, max_tokens=2048)
 
         if result is None:
             mock = [
@@ -716,7 +733,7 @@ def chat():
         chat_messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
 
     try:
-        reply_text = generate_with_llm(prompt=None, messages=chat_messages)
+        reply_text = generate_with_llm(prompt=None, messages=chat_messages, temperature=0.7, max_tokens=2048)
 
         if reply_text is None:
             mock_reply = "（未配置 API Key，无法进行 AI 对话）你可以尝试手动完善这个角色的设定。"
@@ -751,7 +768,7 @@ def create_character():
 
     prompts = render('novel/character.j2', name=name, role=role or "", description=description, genre=genre)
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
 
         if result is None:
             char_data = {
@@ -819,7 +836,7 @@ def generate_characters():
 
     prompts = render('novel/batch_characters.j2', genre=genre, premise=premise, synopsis=synopsis or "", count=count, existing_context=existing_context)
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
 
         if result is None:
             return jsonify({
@@ -888,7 +905,7 @@ def generate_locations():
 
     prompts = render('novel/batch_locations.j2', genre=genre, premise=premise, synopsis=synopsis or "", count=count, char_context=char_context, existing_context=existing_context)
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
 
         if result is None:
             return jsonify({
@@ -932,7 +949,7 @@ def generate_location():
 
     prompts = render('novel/location.j2', name=name, type_=type_, genre=genre, premise=premise or "")
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
 
         if result is None:
             mock_data = {

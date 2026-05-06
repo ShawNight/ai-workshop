@@ -41,6 +41,7 @@ export const novelApi = {
   chat: (data) => api.post('/novel/chat', data),
   getStats: (projectId) => api.get(`/novel/projects/${projectId}/stats`),
   saveDraft: (projectId, chapterId, data) => api.post(`/novel/projects/${projectId}/drafts/${chapterId}`, data),
+  updateChapter: (projectId, chapterId, data) => api.put(`/novel/projects/${projectId}/chapters/${chapterId}`, data),
   getDrafts: (projectId, chapterId) => api.get(`/novel/projects/${projectId}/drafts/${chapterId}`),
   getDraftContent: (draftId) => api.get(`/novel/drafts/${draftId}`),
   logWriting: (projectId, data) => api.post(`/novel/projects/${projectId}/stats/log`, data),

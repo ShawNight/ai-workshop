@@ -4,6 +4,7 @@
 用于存储小说项目和工作流数据，支持服务器重启后数据不丢失。
 """
 import os
+import re
 import sqlite3
 import json
 import threading
@@ -95,6 +96,12 @@ def init_db():
                 cursor.execute(migration)
             except sqlite3.OperationalError:
                 pass  # 列已存在，跳过
+        
+        try:
+            cursor.execute("ALTER TABLE novel_projects ADD COLUMN notes TEXT DEFAULT '[]'")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         
         # 音乐历史记录表（只保存已完成的音乐）
         cursor.execute("""
@@ -289,6 +296,38 @@ def update_novel_project(project_id: str, updates: dict) -> bool:
         cursor.execute(sql, values)
         conn.commit()
         return cursor.rowcount > 0
+
+
+def _count_words(html_content):
+    text = re.sub(r'<[^>]+>', '', html_content or '')
+    return len(text.replace(' ', ''))
+
+
+def update_chapter(project_id, chapter_id, content=None, title=None):
+    with get_connection() as conn:
+        project = get_novel_project(project_id)
+        if not project:
+            return False
+        chapters = project.get('chapters', [])
+        found = False
+        for i, ch in enumerate(chapters):
+            if ch.get('id') == chapter_id:
+                if content is not None:
+                    chapters[i]['content'] = content
+                if title is not None:
+                    chapters[i]['title'] = title
+                found = True
+                break
+        if not found:
+            return False
+        total_words = sum(_count_words(c.get('content', '')) for c in chapters)
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE novel_projects SET chapters = ?, current_word_count = ?, updated_at = ? WHERE id = ?',
+            (json.dumps(chapters, ensure_ascii=False), total_words, datetime.now().isoformat(), project_id)
+        )
+        conn.commit()
+        return True
 
 
 def delete_novel_project(project_id: str) -> bool:
