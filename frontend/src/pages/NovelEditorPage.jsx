@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { BookOpen, Maximize2, History, StickyNote } from 'lucide-react';
+import { BookOpen, Maximize2, History, StickyNote, UserPlus } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
@@ -19,6 +19,8 @@ import { ExportTab } from '../components/novel/tabs/ExportTab';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
 import { NotesDrawer } from '../components/novel/NotesDrawer';
+import { SummarySuggestion } from '../components/novel/SummarySuggestion';
+import { EntityExtractor } from '../components/novel/EntityExtractor';
 
 export function NovelEditorPage() {
   const { projectId } = useParams();
@@ -31,7 +33,7 @@ export function NovelEditorPage() {
     updateProject,
   } = useNovelStore();
   const { save } = useAutoSave(currentProject?.id, editingChapterId);
-  const { generateChapter, continueChapter } = useChapterActions();
+  const { generateChapter, continueChapter, suggestion, setSuggestion } = useChapterActions();
 
   const handleBack = useCallback(() => {
     navigate('/novel');
@@ -46,6 +48,7 @@ export function NovelEditorPage() {
   const [showBrainstorm, setShowBrainstorm] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [extractedEntities, setExtractedEntities] = useState(null);
 
   useEffect(() => {
     loadProject();
@@ -86,6 +89,72 @@ export function NovelEditorPage() {
     const newContent = (chapter.content || '') + `<p><em>【灵感：${item.title} — ${item.description}】</em></p>`;
     handleChapterContentChange({ html: newContent, text: '' });
     toast.success('灵感已添加到文档');
+  };
+
+  const handleAcceptSuggestion = ({ title, description }) => {
+    if (!currentProject || !suggestion) return;
+    const chId = suggestion.chapterId;
+    const chapters = (currentProject.chapters || []).map((c) => {
+      if (c.id !== chId) return c;
+      return { ...c, title: title || c.title, description: description || c.description };
+    });
+    const outline = (currentProject.outline || []).map((item, idx) => {
+      const chapterIdx = chapters.findIndex((c) => c.id === chId);
+      if (chapterIdx < 0 || idx !== chapterIdx) return item;
+      return { ...item, title: title || item.title, description: description || item.description };
+    });
+    updateProject(currentProject.id, { chapters, outline });
+    markUnsaved();
+    setSuggestion(null);
+    toast.success('章节概要已更新');
+  };
+
+  const handleExtractEntities = async () => {
+    if (!currentProject || !editingChapter) return;
+    const plainContent = (editingChapter.content || '').replace(/<[^>]+>/g, '');
+    if (!plainContent.trim()) {
+      toast.error('章节内容为空，无法提取');
+      return;
+    }
+    try {
+      const res = await novelApi.extractEntities({
+        content: plainContent,
+        existingCharacters: (currentProject.characters || []).map((c) => ({ name: c.name, role: c.role })),
+        existingLocations: (currentProject.locations || []).map((l) => ({ name: l.name, type: l.type })),
+        genre: currentProject.genre || '通用',
+        premise: currentProject.premise || '',
+      });
+      if (res.data.success) {
+        const chars = res.data.characters || [];
+        const locs = res.data.locations || [];
+        if (chars.length === 0 && locs.length === 0) {
+          toast.info('未发现新的角色或地点');
+        } else {
+          setExtractedEntities({ characters: chars, locations: locs });
+        }
+      } else {
+        toast.error(res.data.error || '提取失败');
+      }
+    } catch {
+      toast.error('提取实体失败');
+    }
+  };
+
+  const handleAcceptEntities = ({ characters, locations }) => {
+    if (!currentProject) return;
+    const updates = {};
+    if (characters.length > 0) {
+      updates.characters = [...(currentProject.characters || []), ...characters];
+    }
+    if (locations.length > 0) {
+      updates.locations = [...(currentProject.locations || []), ...locations];
+    }
+    if (Object.keys(updates).length > 0) {
+      updateProject(currentProject.id, updates);
+      markUnsaved();
+      toast.success(`已添加 ${characters.length} 个角色和 ${locations.length} 个地点`);
+    }
+    setExtractedEntities(null);
   };
 
   const editingChapter = editingChapterId
@@ -133,6 +202,14 @@ export function NovelEditorPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">{editingChapter.title}</span>
                     <button
+                      onClick={handleExtractEntities}
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-[var(--background)] text-[var(--text-secondary)] border border-[var(--border)]"
+                      title="从正文中提取新角色和地点"
+                    >
+                      <UserPlus size={14} />
+                      <span>提取角色</span>
+                    </button>
+                    <button
                       onClick={() => setShowVersionHistory(true)}
                       className="p-1 rounded hover:bg-[var(--background)]"
                       title="版本历史"
@@ -148,6 +225,20 @@ export function NovelEditorPage() {
                     </button>
                   </div>
                 </div>
+                {suggestion && (
+                  <SummarySuggestion
+                    suggestion={suggestion}
+                    onAccept={handleAcceptSuggestion}
+                    onDismiss={() => setSuggestion(null)}
+                  />
+                )}
+                {extractedEntities && (
+                  <EntityExtractor
+                    entities={extractedEntities}
+                    onAccept={handleAcceptEntities}
+                    onDismiss={() => setExtractedEntities(null)}
+                  />
+                )}
                 <ChapterEditor
                   chapter={editingChapter}
                   onContentChange={handleChapterContentChange}
