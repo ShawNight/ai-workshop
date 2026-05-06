@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
 import { formatAIContent } from '../utils/formatContent';
@@ -6,6 +6,7 @@ import { toast } from '../components/ui/Toast';
 
 export function useChapterActions(directChapterId = null) {
   const { currentProject, updateProject, setIsGeneratingChapter, markUnsaved } = useNovelStore();
+  const [suggestion, setSuggestion] = useState(null);
 
   const generateChapter = useCallback(async () => {
     const project = currentProject;
@@ -31,6 +32,8 @@ export function useChapterActions(directChapterId = null) {
         relationships: project.relationships || [],
         locations: project.locations || [],
         outline: (project.outline || []).slice(0, 20),
+        projectId: project.id,
+        chapterIndex: idx,
       });
 
       if (res.data.success) {
@@ -40,8 +43,10 @@ export function useChapterActions(directChapterId = null) {
         );
         updateProject(project.id, { chapters: updatedChapters });
         markUnsaved();
-        if (res.data.mock) toast.info(res.data.message);
-        else toast.success('章节生成成功');
+        toast.success('章节生成成功');
+        if (res.data.summarySuggestion) {
+          setSuggestion({ ...res.data.summarySuggestion, chapterId: chId, source: 'generate' });
+        }
       } else {
         toast.error(res.data.error || '章节生成失败');
       }
@@ -50,7 +55,7 @@ export function useChapterActions(directChapterId = null) {
     } finally {
       setIsGeneratingChapter(false);
     }
-  }, [currentProject, directChapterId, updateProject, setIsGeneratingChapter, markUnsaved]);
+  }, [currentProject, directChapterId, updateProject, setIsGeneratingChapter, markUnsaved, setSuggestion]);
 
   const continueChapter = useCallback(async (selection) => {
     const project = currentProject;
@@ -81,8 +86,7 @@ export function useChapterActions(directChapterId = null) {
           );
           updateProject(project.id, { chapters: updatedChapters });
           markUnsaved();
-          if (res.data.mock) toast.info(res.data.message);
-          else toast.success('改写完成');
+          toast.success('改写完成');
         } else {
           toast.error(res.data.error || '改写失败');
         }
@@ -102,6 +106,8 @@ export function useChapterActions(directChapterId = null) {
           relationships: project.relationships || [],
           locations: project.locations || [],
           outline: (project.outline || []).slice(0, 20),
+          projectId: project.id,
+          chapterIndex: (project.chapters || []).findIndex((c) => c.id === chId),
         });
         if (res.data.success) {
           const formatted = formatAIContent(res.data.content);
@@ -111,8 +117,10 @@ export function useChapterActions(directChapterId = null) {
           );
           updateProject(project.id, { chapters: updatedChapters });
           markUnsaved();
-          if (res.data.mock) toast.info(res.data.message);
-          else toast.success('续写完成');
+          toast.success('续写完成');
+          if (res.data.summarySuggestion) {
+            setSuggestion({ ...res.data.summarySuggestion, chapterId: chId, source: 'continue' });
+          }
         } else {
           toast.error(res.data.error || '续写失败');
         }
@@ -120,7 +128,7 @@ export function useChapterActions(directChapterId = null) {
         toast.error('续写失败');
       }
     }
-  }, [currentProject, directChapterId, updateProject, markUnsaved]);
+  }, [currentProject, directChapterId, updateProject, markUnsaved, setSuggestion]);
 
-  return { generateChapter, continueChapter };
+  return { generateChapter, continueChapter, suggestion, setSuggestion };
 }
