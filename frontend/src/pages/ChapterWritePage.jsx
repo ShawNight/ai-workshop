@@ -6,6 +6,7 @@ import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
 import { useAutoSave } from '../hooks/useAutoSave';
 import { useChapterActions } from '../hooks/useChapterActions';
+import { useHotkeys } from '../hooks/useHotkeys';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
@@ -21,6 +22,12 @@ export function ChapterWritePage() {
   } = useNovelStore();
   const { save } = useAutoSave(projectId, chapterId);
   const { generateChapter, continueChapter } = useChapterActions(chapterId);
+
+  useHotkeys({
+    'ctrl+s': () => save(),
+    'ctrl+enter': () => continueChapter({}),
+    'ctrl+shift+b': () => setShowBrainstorm(true),
+  }, [save, continueChapter]);
 
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [activeAction, setActiveAction] = useState(null);

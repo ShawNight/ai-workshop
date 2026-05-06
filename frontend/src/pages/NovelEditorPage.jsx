@@ -6,6 +6,7 @@ import { novelApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
 import { useAutoSave } from '../hooks/useAutoSave';
 import { useChapterActions } from '../hooks/useChapterActions';
+import { useHotkeys } from '../hooks/useHotkeys';
 import { EditorToolbar } from '../components/novel/EditorToolbar';
 import { EditorSidebar } from '../components/novel/EditorSidebar';
 import { ChapterEditor } from '../components/novel/ChapterEditor';
@@ -34,6 +35,12 @@ export function NovelEditorPage() {
   const handleBack = useCallback(() => {
     navigate('/novel');
   }, [navigate]);
+
+  useHotkeys({
+    'ctrl+s': () => save(),
+    'ctrl+enter': () => generateChapter(),
+    'ctrl+shift+b': () => setShowBrainstorm(true),
+  }, [save, generateChapter]);
 
   const [showBrainstorm, setShowBrainstorm] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
