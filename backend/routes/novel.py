@@ -13,55 +13,25 @@ from database import (
 
 novel_bp = Blueprint("novel", __name__)
 
-from config import LLM_API_KEY, LLM_CHAT_URL, LLM_CHAT_MODEL, get_proxies
+from config import LLM_API_KEY, LLM_CHAT_URL, LLM_CHAT_MODEL, get_proxies, LLM_MAX_TOKENS_CHAPTER, LLM_MAX_TOKENS_MEDIUM, LLM_MAX_TOKENS_SHORT
 from prompts import render
 from utils.token_budget import estimate_tokens, smart_truncate, allocate_context_budget
+from utils.context_builder import build_chapter_context
 
 # ==================== LLM 调用 ====================
 
-MOCK_OUTLINE = [
-    {"title": "第一章：序幕拉开", "description": "主角在平凡的日常中第一次接触到改变命运的契机，埋下故事的核心冲突。"},
-    {"title": "第二章：踏入未知", "description": "主角离开舒适区，进入全新的世界或环境，结识重要盟友，初步了解面临的挑战。"},
-    {"title": "第三章：初次考验", "description": "主角遭遇第一次重大挫折或战斗，暴露出自身不足，但在困境中展现出潜力。"},
-    {"title": "第四章：转折之路", "description": "故事迎来关键转折，主角获得重要信息或力量，但代价是失去或牺牲某些东西。"},
-    {"title": "第五章：至暗时刻", "description": "矛盾全面爆发，主角面临最大的危机和内心挣扎，似乎一切都在走向毁灭。"},
-    {"title": "第六章：绝地反击", "description": "在最黑暗的时刻，主角找到突破口，联合盟友发起关键反击，扭转局势。"},
-    {"title": "第七章：真相大白", "description": "隐藏的真相浮出水面，主角发现一切并非表面所见，最终敌人露出真面目。"},
-    {"title": "第八章：破晓新生", "description": "主角突破自我极限，解决核心冲突，故事走向结局，但同时为可能的续篇留下空间。"},
-]
 
-MOCK_DIRECTIONS = [
-    {"title": "命运逆转", "description": "看似稳固的局面突然崩塌，主角被迫重新审视一切。一个意想不到的真相揭开，改变了所有人的立场和选择。主角必须在信任与怀疑之间做出抉择，而这次选择将深刻影响后续每一个角色的命运走向。", "keyPoints": ["关键证据浮出水面", "盟友身份遭质疑", "被迫做出艰难抉择"]},
-    {"title": "暗流涌动", "description": "表面风平浪静，实则各方势力暗中角力。主角获得了一个可以扭转局势的关键筹码，但使用它意味着付出沉重代价。同时，一个隐藏已久的势力正式登场，让局势更加扑朔迷离。", "keyPoints": ["获得关键筹码", "隐藏势力浮出水面", "代价与收益的权衡"]},
-    {"title": "破局之路", "description": "主角选择主动出击，打破僵局。通过一次大胆的计划，不仅解决了眼前的困境，还揭示了一个更大的阴谋。但在胜利的曙光中，新的隐患悄然浮现，为下一段旅程埋下伏笔。", "keyPoints": ["大胆计划的制定与执行", "意外揭示更大的阴谋", "新的威胁悄然出现"]},
-]
-
-MOCK_CHAPTER = """夜色如墨，星辰稀疏地挂在天空。
-
-{chapter_title}
-
-风从远处吹来，带着一丝凉意。他站在窗前，目光穿过黑暗，望向远方模糊的轮廓。
-
-"你真的决定了吗？"身后传来一个低沉的声音。
-
-他没有回头，只是微微点了点头。"已经没有回头路了。"
-
-身后的脚步声渐近，一只手搭上了他的肩膀。"那好，我陪你去。"
-
-他转过身，看着眼前这个陪伴了自己多年的朋友，嘴角终于露出一丝笑意。"谢谢你。"
-
-夜色更深了，但两颗心却比任何时候都要明亮。他们知道，前方的路不会平坦，但至少不是一个人走。
-
-月光透过云层洒下来，照亮了他们面前那条蜿蜒的小径。远处传来隐约的雷声，预示着一场暴风雨即将来临。
-
-但他们不再畏惧。"""
-
-
-def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, max_tokens=4096):
+def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, max_tokens=None, timeout=None):
     """调用 LLM API 生成内容。成功返回文本，失败或无 API key 返回 None。
     当传入 messages 时，直接使用该消息列表（用于多轮对话场景）。"""
     if not LLM_API_KEY:
         return None
+
+    if max_tokens is None:
+        max_tokens = LLM_MAX_TOKENS_CHAPTER
+
+    if timeout is None:
+        timeout = max(120, max_tokens // 20 + 30)
 
     if messages is None:
         messages = []
@@ -83,7 +53,7 @@ def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, 
                 "Content-Type": "application/json",
             },
             proxies=get_proxies(),
-            timeout=120,
+            timeout=timeout,
         )
 
         data = response.json()
@@ -338,10 +308,10 @@ def generate_outline_directions():
         story_context=story_context)
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.8, max_tokens=2048)
-                "mock": True,
-                "message": "未配置 API Key，返回示例方案"
-            })
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.8, max_tokens=LLM_MAX_TOKENS_MEDIUM)
+
+        if result is None:
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         parsed = parse_json_from_response(result, r'\[.*\]')
         if parsed and isinstance(parsed, list):
@@ -351,12 +321,7 @@ def generate_outline_directions():
                 item.setdefault("keyPoints", [])
             return jsonify({"success": True, "directions": parsed})
         else:
-            return jsonify({
-                "success": True,
-                "directions": MOCK_DIRECTIONS,
-                "mock": True,
-                "message": "AI 返回格式异常，使用示例方案"
-            })
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新生成"})
 
     except Exception as e:
         return jsonify({"success": False, "error": f"生成方向方案失败: {str(e)}"}), 500
@@ -415,23 +380,16 @@ def generate_outline():
             chapter_count=chapter_count)
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=2048)
-
-        mock_data = MOCK_OUTLINE if not has_existing else [
-            {"title": f"第{len(existing_chapters) + i + 1}章：新篇章", "description": f"第{len(existing_chapters) + i + 1}章的精彩内容，故事继续展开。"}
-            for i in range(chapter_count)
-        ]
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=LLM_MAX_TOKENS_MEDIUM)
 
         if result is None:
-            return jsonify({"success": True, "outline": mock_data[:chapter_count] if not has_existing else mock_data,
-                           "mock": True, "message": "未配置 API Key，返回示例大纲"})
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         outline = parse_json_from_response(result, r'\[.*\]')
         if outline and isinstance(outline, list):
             return jsonify({"success": True, "outline": outline})
         else:
-            return jsonify({"success": True, "outline": mock_data[:chapter_count] if not has_existing else mock_data,
-                           "mock": True, "message": "AI 返回格式异常，使用示例大纲"})
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新生成"})
 
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -452,6 +410,22 @@ def generate_chapter():
     relationships = data.get("relationships") or []
     locations = data.get("locations") or []
     outline = data.get("outline") or []
+    project_id = data.get("projectId", "")
+    chapter_index = data.get("chapterIndex", -1)
+
+    recent_summary = ""
+    settings_context = ""
+    current_outline = ""
+
+    if project_id and chapter_index >= 0:
+        project = get_novel_project(project_id)
+        if project:
+            ctx = build_chapter_context(project, chapter_index)
+            recent_summary = ctx['summary']
+            settings_context = ctx['settings']
+            current_outline = ctx['current_outline']
+            if ctx['previous_content']:
+                previous_content = ctx['previous_content']
 
     story_context = build_story_context(characters, relationships, locations, outline)
 
@@ -462,15 +436,16 @@ def generate_chapter():
         premise=premise,
         previous_content=previous_content or "",
         story_context=story_context,
-        writing_style=writing_style or "")
+        writing_style=writing_style or "",
+        recent_summary=recent_summary,
+        settings_context=settings_context,
+        current_outline=current_outline)
 
     try:
         result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
-            mock = MOCK_CHAPTER.replace("{chapter_title}", chapter_title)
-            return jsonify({"success": True, "content": mock,
-                           "mock": True, "message": "未配置 API Key，返回示例内容"})
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         return jsonify({"success": True, "content": result})
 
@@ -493,9 +468,24 @@ def continue_chapter():
     relationships = data.get("relationships") or []
     locations = data.get("locations") or []
     outline = data.get("outline") or []
+    project_id = data.get("projectId", "")
+    chapter_index = data.get("chapterIndex", -1)
 
     if not current_content:
         return jsonify({"success": False, "error": "请提供当前章节内容"}), 400
+
+    recent_summary = ""
+    settings_context = ""
+    current_outline_text = ""
+
+    if project_id and chapter_index >= 0:
+        project = get_novel_project(project_id)
+        if project:
+            ctx = build_chapter_context(project, chapter_index)
+            recent_summary = ctx['summary']
+            settings_context = ctx['settings']
+            current_outline_text = ctx['current_outline']
+            current_content = smart_truncate(current_content, 3000, preserve_first=False, preserve_last=True)
 
     story_context = build_story_context(characters, relationships, locations, outline)
 
@@ -504,16 +494,17 @@ def continue_chapter():
         chapter_title=chapter_title,
         premise=premise or "",
         story_context=story_context,
-        current_content=current_content[-500:],
-        writing_style=writing_style or "")
+        current_content=current_content,
+        writing_style=writing_style or "",
+        recent_summary=recent_summary,
+        settings_context=settings_context,
+        current_outline=current_outline_text)
 
     try:
         result = generate_with_llm(prompts['user'], system_prompt=prompts['system'])
 
         if result is None:
-            mock = f"夜风渐起，吹动了他的衣角。他凝视着远方，心中涌起难以名状的情绪。\n\n这一刻，他终于明白了那些年长者口中的话——有些路，注定要一个人走完。但他并不孤单，因为那些曾经帮助过他的人，他们的意志已经融入了他的每一步。\n\n他深吸一口气，迈出了坚定的一步。"
-            return jsonify({"success": True, "content": mock,
-                           "mock": True, "message": "未配置 API Key，返回示例内容"})
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         return jsonify({"success": True, "content": result})
 
@@ -547,11 +538,10 @@ def rewrite_text():
         instruction=instruction or "优化文笔，使表达更生动流畅，保持角色性格特征")
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.5, max_tokens=2048)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.5, max_tokens=LLM_MAX_TOKENS_MEDIUM)
 
         if result is None:
-            return jsonify({"success": True, "content": selected_text,
-                           "mock": True, "message": "未配置 API Key，返回原文"})
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         return jsonify({"success": True, "content": result})
 
@@ -589,22 +579,16 @@ def brainstorm():
         idea=idea)
 
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.9, max_tokens=2048)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.9, max_tokens=LLM_MAX_TOKENS_MEDIUM)
 
         if result is None:
-            mock = [
-                {"title": "方向一：冲突升级", "description": "将当前矛盾放大，引入第三方势力使局势更加复杂，主角被迫在夹缝中做出抉择。"},
-                {"title": "方向二：内心成长", "description": "聚焦主角的内心世界，通过一段独处或旅程揭示其过往秘密，完成性格蜕变。"},
-                {"title": "方向三：意外转折", "description": "引入一个意想不到的反转，颠覆读者对某个人物或事件的认知，重新定义故事走向。"},
-            ]
-            return jsonify({"success": True, "ideas": mock,
-                           "mock": True, "message": "未配置 API Key，返回示例"})
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         ideas = parse_json_from_response(result, r'\[.*\]')
         if ideas and isinstance(ideas, list):
             return jsonify({"success": True, "ideas": ideas})
         else:
-            return jsonify({"success": False, "error": "AI 返回格式异常"}), 500
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新生成"})
 
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -666,7 +650,7 @@ def build_chat_system_prompt(mode, entity_id, context):
                 rel_lines.append(f"- 从「{from_name}」到「{to_name}」（{rel_type}）：{rel_desc}")
             rel_context = f"当前角色相关的所有关系：\n" + "\n".join(rel_lines)
 
-        return render('novel/chat_relation.j2', genre=genre, story_context=story_context, rel_context=rel_context)
+        return render('novel/chat_relation.j2', genre=genre, premise=premise or '未设定', story_context=story_context, rel_context=rel_context)
 
     # 默认
     return render('novel/chat_default.j2', genre=genre, story_context=story_context)
@@ -733,15 +717,10 @@ def chat():
         chat_messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
 
     try:
-        reply_text = generate_with_llm(prompt=None, messages=chat_messages, temperature=0.7, max_tokens=2048)
+        reply_text = generate_with_llm(prompt=None, messages=chat_messages, temperature=0.7, max_tokens=LLM_MAX_TOKENS_MEDIUM)
 
         if reply_text is None:
-            mock_reply = "（未配置 API Key，无法进行 AI 对话）你可以尝试手动完善这个角色的设定。"
-            return jsonify({
-                "success": True,
-                "reply": {"content": mock_reply, "suggestions": []},
-                "mock": True
-            })
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         content, suggestions = parse_chat_reply(reply_text, mode, entity_id, context.get("characters", []))
         return jsonify({
@@ -768,34 +747,28 @@ def create_character():
 
     prompts = render('novel/character.j2', name=name, role=role or "", description=description, genre=genre)
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=LLM_MAX_TOKENS_SHORT)
 
         if result is None:
-            char_data = {
-                "traits": ["勇敢", "聪明", "善良"],
-                "appearance": "中等身材，目光坚定，常穿简朴的深色衣物。",
-                "backstory": "出身平凡的Ta，因为一次意外事件卷入了命运的漩涡，从此踏上了一条不平凡的道路。"
-            }
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
+
+        parsed = parse_json_from_response(result, r'\{.*\}')
+        if parsed:
+            char_data = parsed
         else:
-            parsed = parse_json_from_response(result, r'\{.*\}')
-            if parsed:
-                char_data = parsed
-            else:
-                char_data = {"traits": ["勇敢", "聪明", "善良"],
-                            "appearance": "", "backstory": ""}
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新生成"})
 
         character = {
             "id": str(uuid.uuid4()),
             "name": name,
             "role": role,
             "description": description,
-            "traits": char_data.get("traits", ["勇敢", "聪明", "善良"]),
+            "traits": char_data.get("traits", []),
             "appearance": char_data.get("appearance", ""),
             "backstory": char_data.get("backstory", ""),
         }
 
-        return jsonify({"success": True, "character": character,
-                       "mock": result is None})
+        return jsonify({"success": True, "character": character})
 
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -804,14 +777,6 @@ def create_character():
 
 
 # ==================== 批量生成 ====================
-
-MOCK_BATCH_CHARACTERS = [
-    {"name": "林昊", "role": "主角", "description": "性格坚毅的年轻人，命运多舛但从未放弃", "traits": ["坚毅", "善良", "执着"], "appearance": "身材挺拔，目光如炬，常穿青色长衫", "backstory": "出身寒门，幼年丧父，凭借毅力一路成长。"},
-    {"name": "赵霜寒", "role": "反派", "description": "阴沉冷酷，但对往事有一丝执念", "traits": ["冷酷", "聪明", "偏执"], "appearance": "面容冷峻，眉间有疤，黑袍加身", "backstory": "曾是天才少年，因遭遇不公而走向黑暗。"},
-    {"name": "老陈", "role": "导师", "description": "看似邋遢的老者，实则深藏不露", "traits": ["睿智", "随和", "神秘"], "appearance": "白发苍苍，衣衫褴褛，眼中时有精光", "backstory": "来历不明，似乎洞知一切，总在关键时刻出现。"},
-    {"name": "苏灵儿", "role": "盟友", "description": "活泼灵动，擅长情报收集", "traits": ["机敏", "乐观", "忠诚"], "appearance": "面容清秀，行动如风，常带笑意", "backstory": "世家之后，因家族变故独自闯荡。"},
-]
-
 
 @novel_bp.route("/generate-characters", methods=["POST"])
 def generate_characters():
@@ -836,15 +801,10 @@ def generate_characters():
 
     prompts = render('novel/batch_characters.j2', genre=genre, premise=premise, synopsis=synopsis or "", count=count, existing_context=existing_context)
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=LLM_MAX_TOKENS_SHORT)
 
         if result is None:
-            return jsonify({
-                "success": True,
-                "characters": MOCK_BATCH_CHARACTERS[:count],
-                "mock": True,
-                "message": "未配置 API Key，返回示例角色"
-            })
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         parsed = parse_json_from_response(result, r'\[.*\]')
         if parsed and isinstance(parsed, list):
@@ -857,22 +817,10 @@ def generate_characters():
                 char.setdefault("backstory", "")
             return jsonify({"success": True, "characters": parsed})
         else:
-            return jsonify({
-                "success": True,
-                "characters": MOCK_BATCH_CHARACTERS[:count],
-                "mock": True,
-                "message": "AI 返回格式异常，使用示例角色"
-            })
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新生成"})
 
     except Exception as e:
         return jsonify({"success": False, "error": f"生成角色失败: {str(e)}"}), 500
-
-
-MOCK_BATCH_LOCATIONS = [
-    {"name": "凌霄城", "type": "city", "description": "雄伟的古城，矗立于云海之上。城墙由千年寒铁铸就，城中灵气充沛，是修炼者的圣地。", "significance": "故事的主要舞台，各方势力交汇之处"},
-    {"name": "幽冥谷", "type": "wilderness", "description": "终年雾气弥漫的深谷，传闻中通往冥界的入口。谷中瘴气弥漫，寻常人难以涉足。", "significance": "主角觉醒力量的地方，也是重要秘密的藏匿之处"},
-    {"name": "天机阁", "type": "building", "description": "建于悬崖之上的古老楼阁，藏有天下奇书无数。阁主神秘莫测，似与各势力都有联系。", "significance": "情报网的中心，主角多次获得关键信息的地方"},
-]
 
 
 @novel_bp.route("/generate-locations", methods=["POST"])
@@ -905,15 +853,10 @@ def generate_locations():
 
     prompts = render('novel/batch_locations.j2', genre=genre, premise=premise, synopsis=synopsis or "", count=count, char_context=char_context, existing_context=existing_context)
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=LLM_MAX_TOKENS_SHORT)
 
         if result is None:
-            return jsonify({
-                "success": True,
-                "locations": MOCK_BATCH_LOCATIONS[:count],
-                "mock": True,
-                "message": "未配置 API Key，返回示例地点"
-            })
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         parsed = parse_json_from_response(result, r'\[.*\]')
         if parsed and isinstance(parsed, list):
@@ -924,12 +867,7 @@ def generate_locations():
                 loc.setdefault("significance", "")
             return jsonify({"success": True, "locations": parsed})
         else:
-            return jsonify({
-                "success": True,
-                "locations": MOCK_BATCH_LOCATIONS[:count],
-                "mock": True,
-                "message": "AI 返回格式异常，使用示例地点"
-            })
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新生成"})
 
     except Exception as e:
         return jsonify({"success": False, "error": f"生成地点失败: {str(e)}"}), 500
@@ -949,14 +887,10 @@ def generate_location():
 
     prompts = render('novel/location.j2', name=name, type_=type_, genre=genre, premise=premise or "")
     try:
-        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=1024)
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=LLM_MAX_TOKENS_SHORT)
 
         if result is None:
-            mock_data = {
-                "description": f"{name}是一处充满故事的地方。古老的建筑与自然景观交织，空气中弥漫着历史的气息。这里曾经发生过许多重要事件，每一条街道都藏着不为人知的秘密。",
-                "significance": "故事发展的重要舞台，关键情节在此上演。"
-            }
-            return jsonify({"success": True, "location": mock_data, "mock": True, "message": "未配置 API Key，返回示例描述"})
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
         parsed = parse_json_from_response(result, r'\{.*\}')
         if parsed and isinstance(parsed, dict):
@@ -964,14 +898,63 @@ def generate_location():
             parsed.setdefault("significance", "")
             return jsonify({"success": True, "location": parsed})
         else:
-            mock_data = {
-                "description": f"{name}是一处充满故事的地方。",
-                "significance": "故事中的重要地点。"
-            }
-            return jsonify({"success": True, "location": mock_data, "mock": True, "message": "AI 返回格式异常，使用示例描述"})
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新生成"})
 
     except Exception as e:
         return jsonify({"success": False, "error": f"生成地点失败: {str(e)}"}), 500
+
+
+@novel_bp.route("/extract-entities", methods=["POST"])
+def extract_entities():
+    """从正文中提取新角色和地点"""
+    data = request.get_json()
+    content = data.get("content", "")
+    existing_characters = data.get("existingCharacters") or []
+    existing_locations = data.get("existingLocations") or []
+    genre = data.get("genre", "通用")
+    premise = data.get("premise", "")
+
+    if not content:
+        return jsonify({"success": False, "error": "请提供章节内容"}), 400
+
+    existing_char_names = "、".join(c.get("name", "") for c in existing_characters if c.get("name")) or "无"
+    existing_loc_names = "、".join(l.get("name", "") for l in existing_locations if l.get("name")) or "无"
+
+    prompts = render('novel/extract_entities.j2',
+        genre=genre,
+        premise=premise or "未指定",
+        content=content[:3000],
+        existing_character_names=existing_char_names,
+        existing_location_names=existing_loc_names)
+
+    try:
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.3, max_tokens=LLM_MAX_TOKENS_SHORT)
+
+        if result is None:
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
+
+        parsed = parse_json_from_response(result, r'\{.*\}')
+        if parsed and isinstance(parsed, dict):
+            characters = parsed.get("characters", [])
+            locations = parsed.get("locations", [])
+            for char in characters:
+                char.setdefault("name", "")
+                char.setdefault("role", "配角")
+                char.setdefault("description", "")
+                char.setdefault("traits", [])
+                char.setdefault("appearance", "")
+                char.setdefault("backstory", "")
+            for loc in locations:
+                loc.setdefault("name", "")
+                loc.setdefault("type", "other")
+                loc.setdefault("description", "")
+                loc.setdefault("significance", "")
+            return jsonify({"success": True, "characters": characters, "locations": locations})
+        else:
+            return jsonify({"success": False, "error": "AI 返回格式异常，请重新提取"})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"提取实体失败: {str(e)}"}), 500
 
 
 # ==================== 统计和草稿 ====================
