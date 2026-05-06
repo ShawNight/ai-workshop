@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Plus, X, Heart, Sword, ShieldCheck, Users } from 'lucide-react';
+import { generateId } from '../../utils/formatContent';
 
 const relationTypes = [
   { value: 'friend', label: '朋友', icon: Users, color: '#3B82F6' },
@@ -21,7 +22,7 @@ export function RelationshipEditor({ characters, relationships, onSave, onClose 
   const handleSave = () => {
     if (!fromId || !toId || fromId === toId) return;
     onSave?.({
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+      id: generateId(),
       fromId,
       toId,
       type,

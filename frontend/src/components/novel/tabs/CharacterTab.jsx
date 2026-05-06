@@ -8,6 +8,7 @@ import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
 import { RelationshipGraph } from '../RelationshipGraph';
 import { RelationshipEditor } from '../RelationshipEditor';
+import { generateId } from '../../../utils/formatContent';
 import { ChatPanel } from '../chat/ChatPanel';
 
 const characterRoles = ['主角', '配角', '反派', '导师', '盟友', '恋人', '路人'];
@@ -165,7 +166,7 @@ export function CharacterTab() {
       if (res.data.success) {
         setPendingCharacters(res.data.characters.map((c) => ({
           ...c,
-          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          id: generateId(),
         })));
         if (res.data.mock) toast.info(res.data.message || '使用示例角色');
         else toast.success(`已生成 ${res.data.characters.length} 个角色，请审阅`);
@@ -288,7 +289,7 @@ export function CharacterTab() {
       }
       case 'create_relationship': {
         const newRel = {
-          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          id: generateId(),
           ...suggestion.value,
         };
         updateProject(currentProject.id, { relationships: [...projectRelationships, newRel] });
@@ -297,7 +298,7 @@ export function CharacterTab() {
       }
       case 'create_character': {
         const newChar = {
-          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          id: generateId(),
           ...suggestion.value,
           traits: suggestion.value.traits || [],
         };

@@ -5,6 +5,7 @@ import { Input, Textarea, Label } from '../../ui/Input';
 import { toast } from '../../ui/Toast';
 import { useNovelStore } from '../../../store/novelStore';
 import { novelApi } from '../../../api';
+import { generateId } from '../../../utils/formatContent';
 import { ChatPanel } from '../chat/ChatPanel';
 
 const locationTypes = [
@@ -54,7 +55,7 @@ export function WorldTab() {
       return;
     }
     const loc = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+      id: generateId(),
       ...newLocation,
       name: newLocation.name.trim(),
       description: newLocation.description.trim(),
@@ -157,7 +158,7 @@ export function WorldTab() {
       if (res.data.success) {
         setPendingLocations(res.data.locations.map((l) => ({
           ...l,
-          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          id: generateId(),
           createdAt: new Date().toISOString(),
         })));
         if (res.data.mock) toast.info(res.data.message || '使用示例地点');
@@ -255,7 +256,7 @@ export function WorldTab() {
       }
       case 'create_location': {
         const newLoc = {
-          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+          id: generateId(),
           ...suggestion.value,
         };
         updateProject(currentProject.id, { locations: [...projectLocations, newLoc] });

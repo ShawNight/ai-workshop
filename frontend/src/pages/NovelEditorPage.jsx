@@ -16,19 +16,7 @@ import { SettingsTab } from '../components/novel/tabs/SettingsTab';
 import { ExportTab } from '../components/novel/tabs/ExportTab';
 import { BrainstormModal } from '../components/novel/BrainstormModal';
 import { VersionHistory } from '../components/novel/VersionHistory';
-
-// 将 AI 返回的文本（\n\n=段落分隔，\n=段内换行）转为 HTML
-const formatAIContent = (text) => {
-  const paragraphs = text.split(/\n\n+/);
-  return paragraphs
-    .map((p) => {
-      const trimmed = p.trim();
-      if (!trimmed) return '';
-      const withBreaks = trimmed.replace(/\n/g, '<br>');
-      return `<p>${withBreaks}</p>`;
-    })
-    .join('');
-};
+import { formatAIContent } from '../utils/formatContent';
 
 export function NovelEditorPage() {
   const { projectId } = useParams();

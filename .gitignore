@@ -37,3 +37,6 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/
+
+# OpenCode local settings
+.opencode/

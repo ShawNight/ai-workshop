@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronRight, ChevronDown, GripVertical, Plus, Trash2, Edit3 } from 'lucide-react';
 import { Input } from '../ui/Input';
+import { generateId } from '../../utils/formatContent';
 
 const typeConfig = {
   volume: { label: '卷', color: 'text-purple-500', bg: 'bg-purple-500/10' },
@@ -148,7 +149,7 @@ function createNewNode(type) {
     scene: '新场景',
   };
   return {
-    id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+    id: generateId(),
     type,
     title: titles[type] || '新节点',
     content: '',

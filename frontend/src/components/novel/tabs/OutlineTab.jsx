@@ -6,10 +6,7 @@ import { toast } from '../../ui/Toast';
 import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
 import { AppendOutlineModal } from '../AppendOutlineModal';
-
-function generateId() {
-  return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
+import { generateId } from '../../../utils/formatContent';
 
 function appendOutlineToChapters(existingChapters, newOutline, startIndex) {
   const newChapters = newOutline.map((item, i) => ({
