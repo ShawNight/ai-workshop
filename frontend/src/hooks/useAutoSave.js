@@ -5,6 +5,7 @@ import { stripHtml } from '../utils/formatContent';
 
 export function useAutoSave(projectId, chapterId = null) {
   const timerRef = useRef(null);
+  const lastSavedHashRef = useRef(null);
 
   const saveDraft = useCallback(async (project, chId) => {
     if (!chId) return;
@@ -19,6 +20,64 @@ export function useAutoSave(projectId, chapterId = null) {
   }, []);
 
   const save = useCallback(async () => {
+    const project = useNovelStore.getState().currentProject;
+    if (!project?.id) return false;
+
+    const currentHash = JSON.stringify(project.chapters);
+
+    if (chapterId && currentHash === lastSavedHashRef.current) {
+      return true;
+    }
+
+    useNovelStore.getState().markSaving();
+
+    try {
+      if (chapterId) {
+        const chapter = (project.chapters || []).find((c) => c.id === chapterId);
+        if (chapter) {
+          await novelApi.updateChapter(project.id, chapterId, {
+            content: chapter.content,
+            title: chapter.title,
+          });
+          await saveDraft(project, chapterId);
+          lastSavedHashRef.current = currentHash;
+          useNovelStore.getState().markSaved();
+          return true;
+        }
+      }
+
+      await novelApi.updateProject(project.id, {
+        title: project.title,
+        genre: project.genre,
+        premise: project.premise,
+        synopsis: project.synopsis,
+        writingStyle: project.writingStyle,
+        coverColor: project.coverColor,
+        status: project.status,
+        targetWordCount: project.targetWordCount,
+        currentWordCount: project.currentWordCount,
+        outline: project.outline,
+        chapters: project.chapters,
+        characters: project.characters,
+        locations: project.locations,
+        relationships: project.relationships,
+        settings: project.settings,
+        notes: project.notes,
+      });
+      const savedProject = useNovelStore.getState().currentProject;
+      if (chapterId) {
+        await saveDraft(savedProject || project, chapterId);
+      }
+      lastSavedHashRef.current = JSON.stringify(savedProject?.chapters || project.chapters);
+      useNovelStore.getState().markSaved();
+      return true;
+    } catch {
+      useNovelStore.getState().setSaveStatus('error');
+      return false;
+    }
+  }, [chapterId, saveDraft]);
+
+  const forceFullSave = useCallback(async () => {
     const project = useNovelStore.getState().currentProject;
     if (!project?.id) return false;
     useNovelStore.getState().markSaving();
@@ -39,9 +98,12 @@ export function useAutoSave(projectId, chapterId = null) {
         locations: project.locations,
         relationships: project.relationships,
         settings: project.settings,
+        notes: project.notes,
       });
-      const savedProject = useNovelStore.getState().currentProject;
-      await saveDraft(savedProject || project, chapterId);
+      if (chapterId) {
+        await saveDraft(useNovelStore.getState().currentProject || project, chapterId);
+      }
+      lastSavedHashRef.current = JSON.stringify(project.chapters);
       useNovelStore.getState().markSaved();
       return true;
     } catch {
@@ -65,14 +127,6 @@ export function useAutoSave(projectId, chapterId = null) {
   }, []);
 
   useEffect(() => {
-    const state = useNovelStore.getState();
-    if (state.isEditorDirty) {
-      scheduleSave();
-    }
-    return () => cancelPending();
-  }, []);
-
-  useEffect(() => {
     const unsubscribe = useNovelStore.subscribe((state, prevState) => {
       if (state.isEditorDirty && !prevState.isEditorDirty) {
         scheduleSave();
@@ -92,5 +146,5 @@ export function useAutoSave(projectId, chapterId = null) {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  return { save, scheduleSave, cancelPending };
+  return { save, forceFullSave, scheduleSave, cancelPending };
 }
