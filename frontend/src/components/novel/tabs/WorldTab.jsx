@@ -3,6 +3,7 @@ import { Plus, Trash2, MapPin, Globe, Building2, Trees, Mountain, Landmark, X, C
 import { Button } from '../../ui/Button';
 import { Input, Textarea, Label } from '../../ui/Input';
 import { toast } from '../../ui/Toast';
+import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { useNovelStore } from '../../../store/novelStore';
 import { novelApi } from '../../../api';
 import { generateId } from '../../../utils/formatContent';
@@ -44,6 +45,9 @@ export function WorldTab() {
   // 审阅中的地点编辑
   const [editingPendingId, setEditingPendingId] = useState(null);
   const [editPendingValues, setEditPendingValues] = useState({});
+
+  // 删除确认
+  const [confirmAction, setConfirmAction] = useState(null);
 
   if (!currentProject) return null;
 
@@ -102,12 +106,16 @@ export function WorldTab() {
   };
 
   const handleDelete = (id, name) => {
-    if (!window.confirm(`确定删除地点「${name}」吗？`)) return;
-    updateProject(currentProject.id, {
-      locations: locations.filter((l) => l.id !== id),
+    setConfirmAction({
+      message: `确定删除地点「${name}」吗？`,
+      onConfirm: () => {
+        updateProject(currentProject.id, {
+          locations: locations.filter((l) => l.id !== id),
+        });
+        markUnsaved();
+        toast.success('地点已删除');
+      },
     });
-    markUnsaved();
-    toast.success('地点已删除');
   };
 
   const startEdit = (loc) => {
@@ -654,6 +662,13 @@ export function WorldTab() {
           />
         </div>
       )}
+      <ConfirmDialog
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => { confirmAction?.onConfirm(); setConfirmAction(null); }}
+        title="确认删除"
+        message={confirmAction?.message || ''}
+      />
     </div>
   );
 }

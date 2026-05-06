@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -6,6 +6,7 @@ import CharacterCount from '@tiptap/extension-character-count';
 import { Bold, Italic, Heading, Undo, Redo, Sparkles, Wand2, Lightbulb, AlignJustify } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { toast } from '../ui/Toast';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 const reformatContent = (html) => {
   const div = document.createElement('div');
@@ -93,6 +94,7 @@ const reformatContent = (html) => {
 };
 
 export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue, onBrainstorm, isGenerating, activeAction }) {
+  const [confirmAction, setConfirmAction] = useState(null);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -155,16 +157,20 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
 
   const handleReformat = useCallback(() => {
     if (!editor) return;
-    if (!window.confirm('重新排版将清除加粗、斜体等格式，统一为标准小说排版。是否继续？')) return;
-    const html = editor.getHTML();
-    const reformatted = reformatContent(html);
-    if (reformatted === html) {
-      toast.info('内容已是标准格式，无需排版');
-      return;
-    }
-    editor.commands.setContent(reformatted);
-    onContentChange?.({ html: reformatted, text: editor.getText() });
-    toast.success('排版完成');
+    setConfirmAction({
+      message: '重新排版将清除加粗、斜体等格式，统一为标准小说排版。是否继续？',
+      onConfirm: () => {
+        const html = editor.getHTML();
+        const reformatted = reformatContent(html);
+        if (reformatted === html) {
+          toast.info('内容已是标准格式，无需排版');
+          return;
+        }
+        editor.commands.setContent(reformatted);
+        onContentChange?.({ html: reformatted, text: editor.getText() });
+        toast.success('排版完成');
+      },
+    });
   }, [editor, onContentChange]);
 
   if (!editor) return null;
@@ -276,6 +282,13 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
       <div className="flex-1 overflow-y-auto min-h-0">
         <EditorContent editor={editor} className="h-full" />
       </div>
+      <ConfirmDialog
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => { confirmAction?.onConfirm(); setConfirmAction(null); }}
+        title="确认操作"
+        message={confirmAction?.message || ''}
+      />
     </div>
   );
 }

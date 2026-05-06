@@ -4,6 +4,7 @@ import { Button } from '../../ui/Button';
 import { Input, Textarea, Label } from '../../ui/Input';
 import { Select } from '../../ui/Select';
 import { toast } from '../../ui/Toast';
+import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
 import { RelationshipGraph } from '../RelationshipGraph';
@@ -40,6 +41,9 @@ export function CharacterTab() {
   // 审阅中的角色编辑
   const [editingPendingId, setEditingPendingId] = useState(null);
   const [editPendingValues, setEditPendingValues] = useState({});
+
+  // 删除确认
+  const [confirmAction, setConfirmAction] = useState(null);
 
   if (!currentProject) return null;
 
@@ -85,13 +89,17 @@ export function CharacterTab() {
     const msg = relCount > 0
       ? `确定删除角色「${charName}」吗？将同时删除 ${relCount} 条关联关系。`
       : `确定删除角色「${charName}」吗？`;
-    if (!window.confirm(msg)) return;
-    updateProject(currentProject.id, {
-      characters: characters.filter((c) => c.id !== charId),
-      relationships: relationships.filter((r) => r.fromId !== charId && r.toId !== charId),
+    setConfirmAction({
+      message: msg,
+      onConfirm: () => {
+        updateProject(currentProject.id, {
+          characters: characters.filter((c) => c.id !== charId),
+          relationships: relationships.filter((r) => r.fromId !== charId && r.toId !== charId),
+        });
+        markUnsaved();
+        toast.success('角色已删除');
+      },
     });
-    markUnsaved();
-    toast.success('角色已删除');
   };
 
   const startEdit = (char) => {
@@ -771,6 +779,13 @@ export function CharacterTab() {
           />
         </div>
       )}
+      <ConfirmDialog
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => { confirmAction?.onConfirm(); setConfirmAction(null); }}
+        title="确认删除"
+        message={confirmAction?.message || ''}
+      />
     </div>
   );
 }
