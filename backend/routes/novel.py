@@ -265,6 +265,24 @@ def update_chapter_route(project_id, chapter_id):
     return jsonify({'success': False, 'error': '章节未找到'}), 404
 
 
+def _extract_summary(content, chapter_title, genre):
+    try:
+        prompts = render('novel/extract_summary.j2',
+            genre=genre,
+            chapter_title=chapter_title,
+            content=content[:2000])
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.3, max_tokens=LLM_MAX_TOKENS_SHORT)
+        if result is None:
+            return None
+        parsed = parse_json_from_response(result, r'\{.*\}')
+        if parsed and isinstance(parsed, dict):
+            if 'title' in parsed and 'description' in parsed:
+                return parsed
+        return None
+    except Exception:
+        return None
+
+
 # ==================== AI 生成端点 ====================
 
 @novel_bp.route("/generate-outline-directions", methods=["POST"])
@@ -447,7 +465,8 @@ def generate_chapter():
         if result is None:
             return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
-        return jsonify({"success": True, "content": result})
+        summary_suggestion = _extract_summary(result, chapter_title, genre)
+        return jsonify({"success": True, "content": result, "summarySuggestion": summary_suggestion})
 
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -506,7 +525,8 @@ def continue_chapter():
         if result is None:
             return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
 
-        return jsonify({"success": True, "content": result})
+        summary_suggestion = _extract_summary(result, chapter_title, genre)
+        return jsonify({"success": True, "content": result, "summarySuggestion": summary_suggestion})
 
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 500
