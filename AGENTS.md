@@ -40,8 +40,9 @@ cd frontend && npm run lint                    # ESLint 检查
 - **共享 Hooks**: `useAutoSave`（自动保存+防抖）、`useChapterActions`（AI生成/续写）、`useHotkeys`（快捷键）
 - **共享工具**: `formatContent.js`（formatAIContent/stripHtml/generateId）、`constants/novel.js`（状态枚举/关系类型/地点类型）
 - **LLM 调用**: `generate_with_llm()` 支持 temperature 和 max_tokens 参数，各端点使用差异化配置
-- **上下文构建**: `utils/context_builder.py` 三级上下文策略（摘要层/前文层/设定层），自动传入跨章节上下文
-- **Token 预算**: `utils/token_budget.py` 提供 estimate_tokens/smart_truncate/allocate_context_budget
+- **上下文构建**: `utils/context_builder.py` 三级上下文策略（摘要层/前文层/设定层），自动传入跨章节上下文，已写/未写标记避免情节重复
+- **概要适配**: 生成/续写章节时自动提取 `summarySuggestion`（标题+概要），前端可一键采纳同步大纲
+- **实体提取**: `/extract-entities` 端点从正文提取新角色/地点，对比已有列表避免重复
 
 ## 后端 API 端点
 
@@ -62,8 +63,8 @@ cd frontend && npm run lint                    # ESLint 检查
 | `PUT` | `/projects/<id>` | 更新项目（支持所有字段部分更新） |
 | `DELETE` | `/projects/<id>` | 删除项目（级联删除关联数据） |
 | `POST` | `/generate-outline` | AI 生成层级大纲（支持 characters/relationships/locations 上下文，支持 direction 方向引导） |
-| `POST` | `/generate-chapter` | AI 生成章节（支持 characters/relationships/locations/outline 上下文，支持 projectId+chapterIndex 跨章节上下文） |
-| `POST` | `/continue-chapter` | AI 续写章节（从断点自然延续，支持角色和世界上下文，支持 projectId+chapterIndex 跨章节上下文） |
+| `POST` | `/generate-chapter` | AI 生成章节（支持跨章节上下文），响应含 `summarySuggestion` 概要建议 |
+| `POST` | `/continue-chapter` | AI 续写章节（支持跨章节上下文），响应含 `summarySuggestion` 概要建议 |
 | `POST` | `/rewrite` | AI 改写选中文本（支持角色上下文保持人设一致） |
 | `POST` | `/brainstorm` | AI 头脑风暴（支持 characters/relationships/locations/outline 上下文，策略性截断） |
 | `POST` | `/generate-outline-directions` | AI 生成大纲方向方案（用户先选方向再生成章节） |
@@ -78,6 +79,7 @@ cd frontend && npm run lint                    # ESLint 检查
 | `GET` | `/drafts/<draftId>` | 获取特定草稿内容 |
 | `POST` | `/projects/<id>/stats/log` | 记录写作日志 |
 | `PUT` | `/projects/<id>/chapters/<chapterId>` | 增量更新单章内容（content/title） |
+| `POST` | `/extract-entities` | 从正文中提取新角色和地点（对比已有列表避免重复） |
 
 ## LLM API 集成
 
@@ -101,7 +103,7 @@ HOST=0.0.0.0
 ## 前端组件归属
 
 - `frontend/src/components/music/*` - 歌词编辑器、音乐播放器、歌词同步显示
-- `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴
+- `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴、概要建议卡片、实体审阅面板
 - `frontend/src/components/novel/tabs/*` - 大纲 Tab（含方向引导弹窗 AppendOutlineModal）、角色 Tab（含批量生成+审阅+内联编辑）、世界观 Tab（含批量生成+审阅+内联编辑+AI生成描述）、设定 Tab、导出 Tab
 - `frontend/src/components/novel/chat/*` - AI 对话面板（character/world/relation 模式）、建议卡片
 - `frontend/src/components/workflow/*` - 画布、节点面板、节点编辑器
