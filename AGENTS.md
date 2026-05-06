@@ -37,6 +37,11 @@ cd frontend && npm run lint                    # ESLint 检查
 - **状态管理**: Zustand store 在 `frontend/src/store/`
 - **API 层**: `frontend/src/api/index.js` - axios 实例，包含 musicApi、novelApi、workflowApi
 - **提示词管理**: `backend/prompts/` - Jinja2 模板文件，路由代码通过 `render('novel/chapter.j2', **kwargs)` 调用。含 `---SYSTEM---`/`---USER---` 分隔符的模板返回 `{'system': '...', 'user': '...'}，否则返回字符串
+- **共享 Hooks**: `useAutoSave`（自动保存+防抖）、`useChapterActions`（AI生成/续写）、`useHotkeys`（快捷键）
+- **共享工具**: `formatContent.js`（formatAIContent/stripHtml/generateId）、`constants/novel.js`（状态枚举/关系类型/地点类型）
+- **LLM 调用**: `generate_with_llm()` 支持 temperature 和 max_tokens 参数，各端点使用差异化配置
+- **上下文构建**: `utils/context_builder.py` 三级上下文策略（摘要层/前文层/设定层），自动传入跨章节上下文
+- **Token 预算**: `utils/token_budget.py` 提供 estimate_tokens/smart_truncate/allocate_context_budget
 
 ## 后端 API 端点
 
@@ -57,8 +62,8 @@ cd frontend && npm run lint                    # ESLint 检查
 | `PUT` | `/projects/<id>` | 更新项目（支持所有字段部分更新） |
 | `DELETE` | `/projects/<id>` | 删除项目（级联删除关联数据） |
 | `POST` | `/generate-outline` | AI 生成层级大纲（支持 characters/relationships/locations 上下文，支持 direction 方向引导） |
-| `POST` | `/generate-chapter` | AI 生成章节（支持 characters/relationships/locations/outline 上下文） |
-| `POST` | `/continue-chapter` | AI 续写章节（从断点自然延续，支持角色和世界上下文） |
+| `POST` | `/generate-chapter` | AI 生成章节（支持 characters/relationships/locations/outline 上下文，支持 projectId+chapterIndex 跨章节上下文） |
+| `POST` | `/continue-chapter` | AI 续写章节（从断点自然延续，支持角色和世界上下文，支持 projectId+chapterIndex 跨章节上下文） |
 | `POST` | `/rewrite` | AI 改写选中文本（支持角色上下文保持人设一致） |
 | `POST` | `/brainstorm` | AI 头脑风暴（支持 characters/relationships/locations/outline 上下文，策略性截断） |
 | `POST` | `/generate-outline-directions` | AI 生成大纲方向方案（用户先选方向再生成章节） |
@@ -72,6 +77,7 @@ cd frontend && npm run lint                    # ESLint 检查
 | `GET` | `/projects/<id>/drafts/<chapterId>` | 获取章节版本历史 |
 | `GET` | `/drafts/<draftId>` | 获取特定草稿内容 |
 | `POST` | `/projects/<id>/stats/log` | 记录写作日志 |
+| `PUT` | `/projects/<id>/chapters/<chapterId>` | 增量更新单章内容（content/title） |
 
 ## LLM API 集成
 
@@ -141,6 +147,17 @@ HOST=0.0.0.0
 - 当项目无角色、无地点、无章节时，侧边栏底部显示"创作建议"提示卡片
 - Tab 标签旁显示角色和地点数量
 
+## 编码规范
+
+- **Git commit 信息使用中文**，格式：`类型: 描述`，如 `功能: 增加自动保存`、`修复: 修复章节排序问题`、`重构: 提取共享工具函数`
+- **不添加注释**，除非用户明确要求
+- **前端代码风格**: 纯 JSX，无 TypeScript，无 PropTypes
+- **共享工具**: 格式化函数在 `frontend/src/utils/formatContent.js`，常量在 `frontend/src/constants/novel.js`，ID 生成用 `generateId()` from `utils/formatContent`
+- **确认弹窗**: 使用 `ConfirmDialog` 组件替代 `window.confirm()`
+- **自动保存**: 使用 `useAutoSave` hook，支持 3 秒防抖和 `beforeunload` 保护
+- **章节操作**: 使用 `useChapterActions` hook（generateChapter/continueChapter）
+- **快捷键**: 使用 `useHotkeys` hook
+
 ## 数据库 Schema
 
 ### novel_projects 表
@@ -148,7 +165,7 @@ HOST=0.0.0.0
 id, title, genre, premise, synopsis, target_word_count, current_word_count,
 status, writing_style, cover_color, outline (JSON), chapters (JSON),
 characters (JSON), locations (JSON), relationships (JSON), settings (JSON),
-created_at, updated_at
+notes (JSON), created_at, updated_at
 ```
 
 ### writing_log 表
