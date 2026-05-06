@@ -45,6 +45,7 @@ export const novelApi = {
   getDrafts: (projectId, chapterId) => api.get(`/novel/projects/${projectId}/drafts/${chapterId}`),
   getDraftContent: (draftId) => api.get(`/novel/drafts/${draftId}`),
   logWriting: (projectId, data) => api.post(`/novel/projects/${projectId}/stats/log`, data),
+  extractEntities: (data) => api.post('/novel/extract-entities', data),
 };
 
 export const workflowApi = {
