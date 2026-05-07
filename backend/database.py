@@ -154,7 +154,22 @@ def init_db():
                 FOREIGN KEY (project_id) REFERENCES novel_projects(id) ON DELETE CASCADE
             )
         """)
-        
+
+        # Provider 配置表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS provider_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
+        # 初始化默认 provider 配置（仅当表为空时）
+        cursor.execute("SELECT COUNT(*) as cnt FROM provider_config")
+        if cursor.fetchone()["cnt"] == 0:
+            from config import DEFAULT_TEXT_PROVIDER, DEFAULT_MUSIC_PROVIDER
+            cursor.execute("INSERT INTO provider_config (key, value) VALUES ('text_provider', ?)", (DEFAULT_TEXT_PROVIDER,))
+            cursor.execute("INSERT INTO provider_config (key, value) VALUES ('music_provider', ?)", (DEFAULT_MUSIC_PROVIDER,))
+
         conn.commit()
         print(f"[数据库] 初始化完成: {DB_PATH}")
 
