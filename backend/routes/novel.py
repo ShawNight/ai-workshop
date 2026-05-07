@@ -1,7 +1,6 @@
 import json
 import re
 import uuid
-import requests
 from flask import Blueprint, request, jsonify
 
 from database import (
@@ -13,7 +12,8 @@ from database import (
 
 novel_bp = Blueprint("novel", __name__)
 
-from config import LLM_API_KEY, LLM_CHAT_URL, LLM_CHAT_MODEL, get_proxies, LLM_MAX_TOKENS_CHAPTER, LLM_MAX_TOKENS_MEDIUM, LLM_MAX_TOKENS_SHORT
+from providers import call_llm
+from config import LLM_MAX_TOKENS_CHAPTER, LLM_MAX_TOKENS_MEDIUM, LLM_MAX_TOKENS_SHORT
 from prompts import render
 from utils.token_budget import estimate_tokens, smart_truncate, allocate_context_budget
 from utils.context_builder import build_chapter_context
@@ -22,52 +22,35 @@ from utils.context_builder import build_chapter_context
 
 
 def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, max_tokens=None, timeout=None):
-    """调用 LLM API 生成内容。成功返回文本，失败或无 API key 返回 None。
+    """调用 LLM API 生成内容。成功返回文本，失败返回 None。
     当传入 messages 时，直接使用该消息列表（用于多轮对话场景）。"""
-    if not LLM_API_KEY:
-        return None
-
     if max_tokens is None:
         max_tokens = LLM_MAX_TOKENS_CHAPTER
 
     if timeout is None:
         timeout = max(120, max_tokens // 20 + 30)
 
+    # 构建最终 messages
     if messages is None:
-        messages = []
+        final_messages = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+            final_messages.append({"role": "system", "content": system_prompt})
+        final_messages.append({"role": "user", "content": prompt})
+    else:
+        final_messages = messages
 
-    try:
-        response = requests.post(
-            LLM_CHAT_URL,
-            json={
-                "model": LLM_CHAT_MODEL,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature
-            },
-            headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            proxies=get_proxies(),
-            timeout=timeout,
-        )
+    resp = call_llm(
+        messages=final_messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
 
-        data = response.json()
-        if data.get("base_resp", {}).get("status_code") != 0:
-            print(f"[LLM] API error: {data.get('base_resp', {}).get('status_msg', 'Unknown')}")
-            return None
+    if not resp.success:
+        print(f"[LLM] Error: {resp.error}")
+        return None
 
-        # Chat Completions API: choices[0].message.content
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if not content:
-            print("[LLM] API returned empty content")
-            return None
-
-        # Strip <think>...</think> reasoning blocks
+    return resp.content<think>...</think> reasoning blocks
         content = re.sub(r'<think>.*?</think>\s*', '', content, flags=re.DOTALL).strip()
 
         return content
