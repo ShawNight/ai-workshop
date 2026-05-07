@@ -10,7 +10,8 @@ from flask import Blueprint, request, jsonify, send_file
 import requests
 from datetime import datetime
 from database import get_connection
-from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_LYRICS_MODEL, LLM_CHAT_MODEL, LLM_MUSIC_MODEL, get_proxies
+from providers import call_llm, get_provider, get_current_music_provider
+from config import get_proxies
 from prompts import render
 
 music_bp = Blueprint("music", __name__)
@@ -52,45 +53,25 @@ def sanitize_filename(name):
 
 
 def generate_song_title_with_llm(theme, mood, genre, lyrics_preview):
-    """使用MiniMax文本模型生成歌名"""
-    if not LLM_API_KEY:
-        return sanitize_filename(theme) or "AI创作歌曲"
-
+    """使用 LLM 生成歌名"""
     try:
         prompt = render('music/song_title.j2', theme=theme, mood=mood, genre=genre, lyrics_preview=lyrics_preview[:200])
 
-        response = requests.post(
-            LLM_CHAT_URL,
-            json={
-                "model": LLM_CHAT_MODEL,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.7,
-                "max_tokens": 20
-            },
-            headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            proxies=get_proxies(),
+        resp = call_llm(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=20,
             timeout=30,
         )
 
-        data = response.json()
-        if data.get("base_resp", {}).get("status_code") != 0:
-            print(f"[歌名生成] API error: {data}")
+        if not resp.success or not resp.content:
             return sanitize_filename(theme) or "AI创作歌曲"
 
-        # 从choices中获取歌名
-        choices = data.get("choices", [])
-        if choices and len(choices) > 0:
-            title = choices[0].get("message", {}).get("content", "").strip()
-            # 清理可能的引号和多余字符
-            title = re.sub(r'^["\']|["\']$', '', title)
-            title = re.sub(r'\n.*', '', title)  # 只取第一行
-            if title:
-                return sanitize_filename(title)
+        title = resp.content.strip()
+        title = re.sub(r'^["\']|["\']$', '', title)
+        title = re.sub(r'\n.*', '', title)
+        if title:
+            return sanitize_filename(title)
 
         return sanitize_filename(theme) or "AI创作歌曲"
     except Exception as e:
@@ -145,19 +126,25 @@ def extract_song_title(lyrics_content, theme=""):
 
 
 def generate_lyrics_with_llm(prompt_text):
-    """使用MiniMax生成歌词"""
-    if not LLM_API_KEY:
-        raise ValueError("未配置 MiniMax API Key，请在 .env 文件中设置 LLM_API_KEY")
+    """使用音乐 Provider 专有 API 生成歌词"""
+    music_provider_name = get_current_music_provider()
+    provider = get_provider(music_provider_name)
+
+    if not provider.api_key:
+        raise ValueError("未配置音乐生成 API Key，请在 .env 文件中设置")
+
+    if not provider.supports_music or not provider.lyrics_url:
+        raise ValueError(f"当前音乐 provider ({provider.display_name}) 不支持歌词生成")
 
     try:
         response = requests.post(
-            LLM_LYRICS_URL,
+            provider.lyrics_url,
             json={
                 "mode": "write_full_song",
                 "prompt": prompt_text,
             },
             headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Authorization": f"Bearer {provider.api_key}",
                 "Content-Type": "application/json",
             },
             proxies=get_proxies(),
@@ -165,20 +152,18 @@ def generate_lyrics_with_llm(prompt_text):
         )
 
         data = response.json()
-        print(f"[MiniMax API] Response: {json.dumps(data, ensure_ascii=False, indent=2)[:500]}")
+        print(f"[歌词生成] API Response: {json.dumps(data, ensure_ascii=False, indent=2)[:500]}")
 
-        if data.get("base_resp", {}).get("status_code") != 0:
-            raise ValueError(
-                f"MiniMax API error: status_code={data.get('base_resp', {}).get('status_code')}"
-            )
+        is_error, error_msg = provider.check_error(data)
+        if is_error:
+            raise ValueError(f"歌词生成 API error: {error_msg}")
 
         lyrics_content = data.get("lyrics", "")
         if not lyrics_content:
-            raise ValueError("MiniMax API returned empty content")
+            raise ValueError("歌词生成 API returned empty content")
 
-        # 直接使用 API 返回的歌名
         song_title = data.get("song_title", "AI创作歌曲")
-        print(f"[MiniMax API] Title from API: {song_title}")
+        print(f"[歌词生成] Title from API: {song_title}")
 
         return {
             "content": lyrics_content,
@@ -211,75 +196,36 @@ def generate_prompt():
     if not user_description:
         return jsonify({"success": False, "error": "请输入歌曲描述"}), 400
 
-    if not LLM_API_KEY:
-        return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
-
     prompts = render('music/prompt_gen.j2', user_description=user_description)
 
     try:
-        response = requests.post(
-            LLM_CHAT_URL,
-            json={
-                "model": LLM_CHAT_MODEL,
-                "messages": [
-                    {"role": "system", "content": prompts['system']},
-                    {"role": "user", "content": prompts['user']}
-                ],
-                "temperature": 0.7,
-                "max_tokens": 1024
-            },
-            headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            proxies=get_proxies(),
+        resp = call_llm(
+            messages=[
+                {"role": "system", "content": prompts['system']},
+                {"role": "user", "content": prompts['user']}
+            ],
+            temperature=0.7,
+            max_tokens=1024,
             timeout=30,
         )
 
-        result = response.json()
-        print(f"[提示词生成] API Response: {json.dumps(result, ensure_ascii=False)[:800]}")
+        if not resp.success:
+            return jsonify({"success": False, "error": resp.error}), 500
 
-        # MiniMax API 返回格式可能有多种
-        # 标准 OpenAI 格式: choices[0].message.content
-        # MiniMax 格式: choices[0].text 或 reply
-        content = None
-
-        # 尝试多种响应格式
-        if "choices" in result:
-            choice = result["choices"][0]
-            if "message" in choice:
-                content = choice["message"].get("content", "")
-            elif "text" in choice:
-                content = choice.get("text", "")
-
-        if "reply" in result:
-            content = result.get("reply", "")
-
-        if not content:
-            # 检查是否有错误
-            if "error" in result:
-                error_msg = result.get("error", {}).get("message", "API调用失败")
-                return jsonify({"success": False, "error": error_msg}), 500
-
-            return jsonify({"success": False, "error": "AI未返回有效内容"}), 500
-
-        content = content.strip()
+        content = resp.content.strip()
 
         # 尝试解析JSON
         try:
-            # 清理可能的markdown代码块标记
             content = re.sub(r'^```json\s*', '', content)
             content = re.sub(r'^```\s*', '', content)
             content = re.sub(r'\s*```$', '', content)
 
-            # 尝试从内容中提取JSON对象
             json_match = re.search(r'\{[^{}]*\}', content)
             if json_match:
                 content = json_match.group(0)
 
             prompt_data = json.loads(content)
 
-            # 确保必要字段存在
             return jsonify({
                 "success": True,
                 "prompt": {
@@ -291,22 +237,17 @@ def generate_prompt():
                 "message": "提示词已生成"
             })
         except json.JSONDecodeError:
-                # 如果JSON解析失败，返回原始内容让用户编辑
-                return jsonify({
-                    "success": True,
-                    "prompt": {
-                        "theme": user_description,
-                        "mood": "欢快",
-                        "genre": "流行",
-                        "description": content
-                    },
-                    "message": "提示词已生成（请手动调整）"
-                })
+            return jsonify({
+                "success": True,
+                "prompt": {
+                    "theme": user_description,
+                    "mood": "欢快",
+                    "genre": "流行",
+                    "description": content
+                },
+                "message": "提示词已生成（请手动调整）"
+            })
 
-        return jsonify({"success": False, "error": "AI未返回内容"}), 500
-
-    except requests.exceptions.Timeout:
-        return jsonify({"success": False, "error": "请求超时，请重试"}), 500
     except Exception as e:
         print(f"[提示词生成] Error: {e}")
         return jsonify({"success": False, "error": f"生成失败: {str(e)}"}), 500
@@ -368,28 +309,35 @@ def generate_music():
     jobs[job_id]["status"] = "generating"
     jobs[job_id]["progress"] = 5
 
-    # 使用 MiniMax API 生成音乐
+    # 使用 Provider API 生成音乐
     def run_generation():
         try:
             import base64
+            music_provider_name = get_current_music_provider()
+            music_provider = get_provider(music_provider_name)
+
+            if not music_provider.supports_music or not music_provider.api_key:
+                jobs[job_id]["status"] = "failed"
+                jobs[job_id]["error"] = "当前音乐 Provider 不支持音乐生成或未配置 API Key"
+                return
+
             headers = {
-                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Authorization": f"Bearer {music_provider.api_key}",
                 "Content-Type": "application/json"
             }
             payload = {
-                "model": LLM_MUSIC_MODEL,
+                "model": music_provider.music_model,
                 "prompt": generation_prompt,
                 "lyrics": lyrics
             }
 
-            response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, proxies=get_proxies(),
+            response = requests.post(music_provider.music_url, headers=headers, json=payload, proxies=get_proxies(),
             timeout=300)
             result = response.json()
 
             # 检查业务错误
-            base_resp = result.get("base_resp", {})
-            if base_resp.get("status_code") != 0:
-                error_msg = base_resp.get("status_msg", "音乐生成失败")
+            is_error, error_msg = music_provider.check_error(result)
+            if is_error:
                 jobs[job_id]["status"] = "failed"
                 jobs[job_id]["error"] = error_msg
                 return
@@ -521,22 +469,37 @@ def delete_music_history(music_id):
 @music_bp.route("/music-check", methods=["GET"])
 def check_music_api():
     """检查音乐生成 API 是否可用"""
-    if not LLM_API_KEY:
+    try:
+        music_provider_name = get_current_music_provider()
+        music_provider = get_provider(music_provider_name)
+    except (KeyError, Exception) as e:
         return jsonify({
             "success": True,
             "available": False,
-            "error": "未配置 LLM_API_KEY，音乐生成 API 不可用"
+            "error": f"音乐 Provider 配置错误: {str(e)}"
+        })
+
+    if not music_provider.supports_music:
+        return jsonify({
+            "success": True,
+            "available": False,
+            "error": f"当前 Provider ({music_provider.display_name}) 不支持音乐生成"
+        })
+
+    if not music_provider.api_key:
+        return jsonify({
+            "success": True,
+            "available": False,
+            "error": "未配置音乐 Provider API Key"
         })
 
     try:
-        # 用轻量请求测试 API 可达性
         headers = {
-            "Authorization": f"Bearer {LLM_API_KEY}",
+            "Authorization": f"Bearer {music_provider.api_key}",
             "Content-Type": "application/json"
         }
-        response = requests.post(LLM_MUSIC_URL, headers=headers, json={}, proxies=get_proxies(),
+        response = requests.post(music_provider.music_url, headers=headers, json={}, proxies=get_proxies(),
         timeout=10)
-        # 只要有响应（即使是参数错误 4xx），说明 API 可达
         if response.status_code < 500:
             return jsonify({
                 "success": True,
@@ -587,9 +550,6 @@ def generate_lrc():
     if not lyrics:
         return jsonify({"success": False, "error": "缺少歌词内容"}), 400
 
-    if not LLM_API_KEY:
-        return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
-
     # 构建歌曲结构描述，帮助模型理解段落
     lines = [l.strip() for l in lyrics.strip().split('\n') if l.strip()]
     line_count = len(lines)
@@ -603,46 +563,27 @@ def generate_lrc():
     prompts = render('music/lrc.j2', lyrics=lyrics, duration_hint=duration_hint)
 
     try:
-        response = requests.post(
-            LLM_CHAT_URL,
-            json={
-                "model": LLM_CHAT_MODEL,
-                "messages": [
-                    {"role": "system", "content": prompts['system']},
-                    {"role": "user", "content": prompts['user']}
-                ],
-                "temperature": 0.3,
-                "max_tokens": 2048
-            },
-            headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            proxies=get_proxies(),
+        resp = call_llm(
+            messages=[
+                {"role": "system", "content": prompts['system']},
+                {"role": "user", "content": prompts['user']}
+            ],
+            temperature=0.3,
+            max_tokens=2048,
             timeout=30,
         )
 
-        result = response.json()
-        print(f"[LRC生成] API Response: {json.dumps(result, ensure_ascii=False)[:500]}")
+        if not resp.success:
+            return jsonify({"success": False, "error": resp.error}), 500
 
-        if result.get("base_resp", {}).get("status_code") != 0:
-            error_msg = result.get("base_resp", {}).get("status_msg", "API调用失败")
-            return jsonify({"success": False, "error": error_msg}), 500
-
-        content = None
-        choices = result.get("choices", [])
-        if choices:
-            content = choices[0].get("message", {}).get("content", "").strip()
-
-        if not content:
-            return jsonify({"success": False, "error": "AI未返回有效内容"}), 500
+        content = resp.content.strip()
 
         # 清理可能的 markdown 代码块标记
         content = re.sub(r'^```lrc\s*', '', content)
         content = re.sub(r'^```\s*', '', content)
         content = re.sub(r'\s*```$', '', content)
 
-        # 验证 LRC 格式：至少有一行带时间戳
+        # 验证 LRC 格式
         lrc_lines = [l for l in content.strip().split('\n') if re.match(r'\[\d{2}:\d{2}', l)]
         if not lrc_lines:
             return jsonify({"success": False, "error": "生成的LRC格式无效"}), 500
@@ -662,7 +603,7 @@ def generate_lrc():
 
 @music_bp.route("/lyrics/modify", methods=["POST"])
 def modify_lyrics():
-    """局部修改歌词 - 使用 MiniMax Chat API"""
+    """局部修改歌词 - 使用 LLM"""
     data = request.get_json()
     full_lyrics = data.get("fullLyrics", "")
     selected_text = data.get("selectedText", "")
@@ -674,63 +615,32 @@ def modify_lyrics():
     if not suggestion:
         return jsonify({"success": False, "error": "请输入修改建议"}), 400
 
-    if not LLM_API_KEY:
-        return jsonify({"success": False, "error": "未配置 MiniMax API Key"}), 500
-
     # 构建 Prompt - 不依赖mood/genre，让AI自动判断风格
     prompt = render('music/lyrics_modify.j2', full_lyrics=full_lyrics, selected_text=selected_text, suggestion=suggestion)
 
     try:
-        response = requests.post(
-            LLM_CHAT_URL,
-            json={
-                "model": LLM_CHAT_MODEL,  # 使用支持的模型
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.7,
-                "max_tokens": 200
-            },
-            headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            proxies=get_proxies(),
+        resp = call_llm(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=200,
             timeout=30,
         )
 
-        result = response.json()
-        print(f"[局部修改] API Response: {json.dumps(result, ensure_ascii=False)[:300]}")
+        if not resp.success:
+            return jsonify({"success": False, "error": resp.error}), 500
 
-        if result.get("base_resp", {}).get("status_code") != 0:
-            error_msg = result.get("base_resp", {}).get("status_msg", "API调用失败")
-            # 如果模型不支持，尝试使用默认模型
-            if "not support model" in error_msg.lower():
-                # 尝试另一种方式：直接返回建议让用户手动修改
-                return jsonify({
-                    "success": False,
-                    "error": "当前API不支持此模型，请手动修改歌词",
-                    "suggestion": suggestion
-                }), 500
-            return jsonify({"success": False, "error": error_msg}), 500
+        new_content = resp.content.strip()
+        new_content = re.sub(r'^修改后的内容[：:]\s*', '', new_content)
+        new_content = re.sub(r'^["\']|["\']$', '', new_content)
 
-        # 提取修改后的内容
-        choices = result.get("choices", [])
-        if choices:
-            new_content = choices[0].get("message", {}).get("content", "").strip()
-            # 清理可能的格式标记
-            new_content = re.sub(r'^修改后的内容[：:]\s*', '', new_content)
-            new_content = re.sub(r'^["\']|["\']$', '', new_content)
-
-            if new_content:
-                # 拼接完整歌词：替换选中部分
-                new_lyrics = full_lyrics.replace(selected_text, new_content)
-                return jsonify({
-                    "success": True,
-                    "modifiedText": new_content,
-                    "fullLyrics": new_lyrics,
-                    "message": "歌词已修改"
-                })
+        if new_content:
+            new_lyrics = full_lyrics.replace(selected_text, new_content)
+            return jsonify({
+                "success": True,
+                "modifiedText": new_content,
+                "fullLyrics": new_lyrics,
+                "message": "歌词已修改"
+            })
 
         return jsonify({"success": False, "error": "AI未返回修改内容"}), 500
 
