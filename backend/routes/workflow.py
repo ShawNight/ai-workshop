@@ -15,7 +15,8 @@ from database import (
 )
 
 # 导入配置
-from config import LLM_API_KEY, LLM_CHAT_URL, LLM_LYRICS_URL, LLM_MUSIC_URL, LLM_MUSIC_MODEL, get_proxies
+from providers import call_llm, get_provider, get_current_music_provider
+from config import get_proxies
 
 workflow_bp = Blueprint("workflow", __name__)
 
@@ -109,104 +110,47 @@ def execute_input_node(node, node_outputs):
 
 
 def execute_llm_node(node, input_data, node_outputs):
-    """
-    执行 LLM 节点：调用 MiniMax Chat API
-    """
+    """执行 LLM 节点：通过 provider 调用 Chat API"""
     config = node.get('config', {})
     prompt_template = config.get('prompt', '')
-    model = config.get('model', 'MiniMax-M2.7')
 
     # 构建实际 prompt
     if prompt_template:
-        # 替换 {{input}} 为上游数据
         actual_prompt = prompt_template.replace('{{input}}', input_data or '')
     else:
-        # 没有 prompt 模板，直接使用上游数据
         actual_prompt = input_data or '请生成一些内容'
 
-    if not LLM_API_KEY:
-        # Mock 模式
-        mock_output = f"[Mock LLM Response] 处理输入: {actual_prompt[:100]}..."
-        node_outputs[node['id']] = mock_output
-        return {
-            'nodeId': node['id'],
-            'nodeName': node.get('label', 'LLM'),
-            'status': 'success',
-            'output': mock_output
-        }
+    resp = call_llm(
+        messages=[{"role": "user", "content": actual_prompt}],
+        temperature=0.7,
+        max_tokens=2000,
+        timeout=60,
+    )
 
-    try:
-        response = requests.post(
-            LLM_CHAT_URL,
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": actual_prompt}],
-                "temperature": 0.7,
-                "max_tokens": 2000
-            },
-            headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            proxies=get_proxies(),
-            timeout=60
-        )
-
-        data = response.json()
-
-        if data.get('base_resp', {}).get('status_code') != 0:
-            error_msg = data.get('base_resp', {}).get('status_msg', 'API 错误')
-            return {
-                'nodeId': node['id'],
-                'nodeName': node.get('label', 'LLM'),
-                'status': 'error',
-                'error': error_msg
-            }
-
-        # 提取响应内容
-        choices = data.get('choices', [])
-        if choices:
-            content = choices[0].get('message', {}).get('content', '')
-            node_outputs[node['id']] = content
-            return {
-                'nodeId': node['id'],
-                'nodeName': node.get('label', 'LLM'),
-                'status': 'success',
-                'output': content[:500] + '...' if len(content) > 500 else content
-            }
-
+    if not resp.success:
         return {
             'nodeId': node['id'],
             'nodeName': node.get('label', 'LLM'),
             'status': 'error',
-            'error': 'API 返回空内容'
+            'error': resp.error
         }
 
-    except requests.exceptions.Timeout:
-        return {
-            'nodeId': node['id'],
-            'nodeName': node.get('label', 'LLM'),
-            'status': 'error',
-            'error': '请求超时'
-        }
-    except Exception as e:
-        return {
-            'nodeId': node['id'],
-            'nodeName': node.get('label', 'LLM'),
-            'status': 'error',
-            'error': str(e)
-        }
+    content = resp.content
+    node_outputs[node['id']] = content
+    return {
+        'nodeId': node['id'],
+        'nodeName': node.get('label', 'LLM'),
+        'status': 'success',
+        'output': content[:500] + '...' if len(content) > 500 else content
+    }
 
 
 def execute_music_node(node, input_data, node_outputs, execution_id):
-    """
-    执行音乐节点：调用 MiniMax 音乐生成 API
-    """
+    """执行音乐节点：通过当前音乐 provider 调用音乐生成 API"""
     config = node.get('config', {})
     style = config.get('style', '流行')
     lyrics_override = config.get('lyrics', '')
 
-    # 使用配置的歌词或上游输入
     lyrics = lyrics_override if lyrics_override else (input_data or '')
 
     if not lyrics:
@@ -217,15 +161,31 @@ def execute_music_node(node, input_data, node_outputs, execution_id):
             'error': '缺少歌词内容'
         }
 
-    if not LLM_API_KEY:
-        # Mock 模式
-        mock_output = f"[Mock Music] 歌词: {lyrics[:100]}... | 风格: {style}"
-        node_outputs[node['id']] = mock_output
+    try:
+        music_provider_name = get_current_music_provider()
+        music_provider = get_provider(music_provider_name)
+    except Exception as e:
         return {
             'nodeId': node['id'],
             'nodeName': node.get('label', '音乐'),
-            'status': 'success',
-            'output': mock_output
+            'status': 'error',
+            'error': f'音乐 Provider 配置错误: {str(e)}'
+        }
+
+    if not music_provider.supports_music:
+        return {
+            'nodeId': node['id'],
+            'nodeName': node.get('label', '音乐'),
+            'status': 'error',
+            'error': f'当前 Provider ({music_provider.display_name}) 不支持音乐生成'
+        }
+
+    if not music_provider.api_key:
+        return {
+            'nodeId': node['id'],
+            'nodeName': node.get('label', '音乐'),
+            'status': 'error',
+            'error': '未配置音乐 Provider API Key'
         }
 
     try:
@@ -233,24 +193,21 @@ def execute_music_node(node, input_data, node_outputs, execution_id):
         safe_name = sanitize_filename(node.get('label', 'workflow_music'))
         output_file = os.path.join(uploads_dir, f"{safe_name}_{execution_id[:8]}.mp3")
 
-        # 调用 MiniMax 音乐生成 HTTP API
         headers = {
-            "Authorization": f"Bearer {LLM_API_KEY}",
+            "Authorization": f"Bearer {music_provider.api_key}",
             "Content-Type": "application/json"
         }
         payload = {
-            "model": LLM_MUSIC_MODEL,
+            "model": music_provider.music_model,
             "prompt": style,
             "lyrics": lyrics
         }
 
-        response = requests.post(LLM_MUSIC_URL, headers=headers, json=payload, proxies=get_proxies(), timeout=300)
+        response = requests.post(music_provider.music_url, headers=headers, json=payload, proxies=get_proxies(), timeout=300)
         result = response.json()
 
-        # 检查业务错误
-        base_resp = result.get("base_resp", {})
-        if base_resp.get("status_code") != 0:
-            error_msg = base_resp.get("status_msg", "音乐生成失败")
+        is_error, error_msg = music_provider.check_error(result)
+        if is_error:
             return {
                 'nodeId': node['id'],
                 'nodeName': node.get('label', '音乐'),
@@ -258,7 +215,6 @@ def execute_music_node(node, input_data, node_outputs, execution_id):
                 'error': error_msg
             }
 
-        # 获取音频数据
         data = result.get("data", {})
         audio_hex = data.get("audio")
         if not audio_hex:
@@ -269,7 +225,6 @@ def execute_music_node(node, input_data, node_outputs, execution_id):
                 'error': '未获取到音频数据'
             }
 
-        # music-2.6 返回十六进制字符串，转换为字节并保存
         audio_bytes = bytes.fromhex(audio_hex)
         with open(output_file, "wb") as f:
             f.write(audio_bytes)
