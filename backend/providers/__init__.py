@@ -150,3 +150,25 @@ def call_llm(messages, temperature=0.7, max_tokens=None, timeout=None,
     except Exception as e:
         print(f"[LLM:{provider.name}] Call failed: {e}")
         return LLMResponse(success=False, error=str(e))
+
+
+def _auto_register_providers():
+    """从 .env 配置自动注册所有 provider"""
+    from config import DEEPSEEK_API_KEY, DEEPSEEK_CHAT_MODEL
+    from config import MINIMAX_API_KEY, MINIMAX_CHAT_MODEL, MINIMAX_MUSIC_MODEL
+    from providers.minimax import MiniMaxProvider
+    from providers.deepseek import DeepSeekProvider
+
+    register_provider(DeepSeekProvider(
+        api_key=DEEPSEEK_API_KEY,
+        chat_model=DEEPSEEK_CHAT_MODEL,
+    ))
+    register_provider(MiniMaxProvider(
+        api_key=MINIMAX_API_KEY,
+        chat_model=MINIMAX_CHAT_MODEL,
+        music_model=MINIMAX_MUSIC_MODEL,
+    ))
+
+
+# 模块加载时自动注册
+_auto_register_providers()
