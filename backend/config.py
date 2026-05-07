@@ -1,34 +1,37 @@
 """
 统一配置管理 - 从 .env 读取
-支持多 Provider，默认 minimax
+支持多 Provider，默认从 DEFAULT_TEXT_PROVIDER / DEFAULT_MUSIC_PROVIDER 获取
 """
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# 默认 Provider
-DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "minimax")
+# 默认 Provider 选择
+DEFAULT_TEXT_PROVIDER = os.getenv("DEFAULT_TEXT_PROVIDER", "deepseek")
+DEFAULT_MUSIC_PROVIDER = os.getenv("DEFAULT_MUSIC_PROVIDER", "minimax")
 
-# LLM API 配置
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_API_URL = os.getenv("LLM_API_URL", "https://api.minimaxi.com/v1")
-LLM_CHAT_URL = os.getenv("LLM_CHAT_URL", "https://api.minimaxi.com/v1/chat/completions")
-LLM_TEXT_URL = os.getenv("LLM_TEXT_URL", "https://api.minimaxi.com/v1/chat/completions")
-LLM_LYRICS_URL = os.getenv("LLM_LYRICS_URL", "https://api.minimaxi.com/v1/lyrics_generation")
-LLM_MUSIC_URL = os.getenv("LLM_MUSIC_URL", "https://api.minimaxi.com/v1/music_generation")
+# ==================== DeepSeek 配置 ====================
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_CHAT_MODEL = os.getenv("DEEPSEEK_CHAT_MODEL", "deepseek-chat")
 
-# 模型配置
-LLM_LYRICS_MODEL = os.getenv("LLM_LYRICS_MODEL", "MiniMax-M2.7")
-LLM_CHAT_MODEL = os.getenv("LLM_CHAT_MODEL", "MiniMax-M2.7")
-LLM_TEXT_MODEL = os.getenv("LLM_TEXT_MODEL", "MiniMax-Text-01")
-LLM_MUSIC_MODEL = os.getenv("LLM_MUSIC_MODEL", "music-2.6")
+# ==================== MiniMax 配置 ====================
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
+MINIMAX_CHAT_MODEL = os.getenv("MINIMAX_CHAT_MODEL", "MiniMax-M2.7")
+MINIMAX_MUSIC_MODEL = os.getenv("MINIMAX_MUSIC_MODEL", "music-2.6")
+
+# ==================== 向后兼容（迁移期保留） ====================
+# 旧 .env 中 LLM_API_KEY 映射到 MINIMAX_API_KEY
+if not MINIMAX_API_KEY:
+    MINIMAX_API_KEY = os.getenv("LLM_API_KEY", "")
+if not DEEPSEEK_API_KEY:
+    DEEPSEEK_API_KEY = os.getenv("LLM_API_KEY", "")
 
 # Server 配置
 PORT = int(os.getenv("PORT", "3001"))
 HOST = os.getenv("HOST", "0.0.0.0")
 
-# LLM 输出 token 限制配置（max_tokens 控制输出上限，模型会自然停止）
+# LLM 输出 token 限制配置
 LLM_MAX_TOKENS_CHAPTER = int(os.getenv("LLM_MAX_TOKENS_CHAPTER", "8192"))
 LLM_MAX_TOKENS_MEDIUM = int(os.getenv("LLM_MAX_TOKENS_MEDIUM", "4096"))
 LLM_MAX_TOKENS_SHORT = int(os.getenv("LLM_MAX_TOKENS_SHORT", "2048"))
@@ -46,23 +49,3 @@ def get_proxies():
     if HTTPS_PROXY:
         proxies["https"] = HTTPS_PROXY
     return proxies
-
-
-def get_model_config(provider=None):
-    """获取指定 provider 的配置，provider=None 时使用默认 provider"""
-    if provider is None:
-        provider = DEFAULT_PROVIDER
-
-    if provider == "minimax":
-        return {
-            "api_key": LLM_API_KEY,
-            "api_url": LLM_API_URL,
-            "chat_url": LLM_CHAT_URL,
-            "lyrics_url": LLM_LYRICS_URL,
-            "music_url": LLM_MUSIC_URL,
-            "lyrics_model": LLM_LYRICS_MODEL,
-            "chat_model": LLM_CHAT_MODEL,
-            "music_model": LLM_MUSIC_MODEL,
-        }
-    # 可扩展其他 provider...
-    raise ValueError(f"Unknown provider: {provider}")
