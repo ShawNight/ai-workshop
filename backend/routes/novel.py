@@ -50,16 +50,6 @@ def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, 
         print(f"[LLM] Error: {resp.error}")
         return None
 
-    return resp.content<think>...</think> reasoning blocks
-        content = re.sub(r'<think>.*?</think>\s*', '', content, flags=re.DOTALL).strip()
-
-        return content
-    except requests.exceptions.Timeout:
-        print("[LLM] Request timeout")
-        return None
-    except Exception as e:
-        print(f"[LLM] Call failed: {e}")
-        return None
 
 
 def build_story_context(characters=None, relationships=None, locations=None, outline=None):
