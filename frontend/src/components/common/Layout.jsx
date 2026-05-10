@@ -3,6 +3,7 @@ import { Music, BookOpen, Workflow, Home, Sun, Moon, Menu, X } from 'lucide-reac
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../store/themeStore';
 import { useState } from 'react';
+import { ProviderSelector } from './ProviderSelector';
 
 const navItems = [
   { to: '/', icon: Home, label: '首页' },
@@ -57,6 +58,9 @@ export function Sidebar() {
             ))}
           </nav>
 
+          <div className="p-4 border-t border-[var(--border)]">
+            <ProviderSelector />
+          </div>
           <div className="p-4 border-t border-[var(--border)]">
             <button
               onClick={toggleTheme}
