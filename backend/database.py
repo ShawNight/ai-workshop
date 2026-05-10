@@ -155,20 +155,92 @@ def init_db():
             )
         """)
 
-        # Provider 配置表
+        # Provider 配置表（新 schema）
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS provider_config (
+            CREATE TABLE IF NOT EXISTS providers (
+                name TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                protocol TEXT NOT NULL DEFAULT 'openai',
+                chat_url TEXT NOT NULL,
+                chat_model TEXT NOT NULL,
+                api_key TEXT NOT NULL DEFAULT '',
+                supports_music INTEGER NOT NULL DEFAULT 0,
+                music_url TEXT NOT NULL DEFAULT '',
+                music_model TEXT NOT NULL DEFAULT '',
+                lyrics_url TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS provider_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )
         """)
 
-        # 初始化默认 provider 配置（仅当表为空时）
-        cursor.execute("SELECT COUNT(*) as cnt FROM provider_config")
+        # 从旧 provider_config 表迁移数据到 provider_settings
+        try:
+            cursor.execute("SELECT key, value FROM provider_config")
+            old_rows = cursor.fetchall()
+            for row in old_rows:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO provider_settings (key, value) VALUES (?, ?)",
+                    (row["key"], row["value"])
+                )
+        except Exception:
+            pass  # 旧表不存在，跳过
+
+        # 从 .env 引导种子数据（仅 providers 表为空时）
+        cursor.execute("SELECT COUNT(*) as cnt FROM providers")
         if cursor.fetchone()["cnt"] == 0:
-            from config import DEFAULT_TEXT_PROVIDER, DEFAULT_MUSIC_PROVIDER
-            cursor.execute("INSERT INTO provider_config (key, value) VALUES ('text_provider', ?)", (DEFAULT_TEXT_PROVIDER,))
-            cursor.execute("INSERT INTO provider_config (key, value) VALUES ('music_provider', ?)", (DEFAULT_MUSIC_PROVIDER,))
+            from config import DEEPSEEK_API_KEY, DEEPSEEK_CHAT_MODEL
+            from config import MINIMAX_API_KEY, MINIMAX_CHAT_MODEL, MINIMAX_MUSIC_MODEL
+            from providers.crypto import encrypt_api_key
+            now = datetime.now().isoformat()
+
+            if DEEPSEEK_API_KEY:
+                cursor.execute("""INSERT INTO providers
+                    (name, display_name, protocol, chat_url, chat_model, api_key,
+                     supports_music, enabled, created_at, updated_at)
+                    VALUES (?, ?, 'openai', ?, ?, ?, 0, 1, ?, ?)""",
+                    ("deepseek", "DeepSeek",
+                     "https://api.deepseek.com/chat/completions",
+                     DEEPSEEK_CHAT_MODEL, encrypt_api_key(DEEPSEEK_API_KEY),
+                     now, now))
+
+            if MINIMAX_API_KEY:
+                cursor.execute("""INSERT INTO providers
+                    (name, display_name, protocol, chat_url, chat_model, api_key,
+                     supports_music, music_url, music_model, lyrics_url, enabled, created_at, updated_at)
+                    VALUES (?, ?, 'minimax', ?, ?, ?, 1, ?, ?, ?, 1, ?, ?)""",
+                    ("minimax", "MiniMax",
+                     "https://api.minimaxi.com/v1/chat/completions",
+                     MINIMAX_CHAT_MODEL, encrypt_api_key(MINIMAX_API_KEY),
+                     "https://api.minimaxi.com/v1/music_generation",
+                     MINIMAX_MUSIC_MODEL,
+                     "https://api.minimaxi.com/v1/lyrics_generation",
+                     now, now))
+
+            # 迁移旧设置或使用默认值
+            text_provider = "deepseek" if DEEPSEEK_API_KEY else "minimax"
+            music_provider = "minimax" if MINIMAX_API_KEY else ""
+            cursor.execute("SELECT value FROM provider_settings WHERE key = 'text_provider'")
+            row = cursor.fetchone()
+            if row:
+                text_provider = row["value"]
+            cursor.execute("SELECT value FROM provider_settings WHERE key = 'music_provider'")
+            row = cursor.fetchone()
+            if row:
+                music_provider = row["value"]
+
+            cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('text_provider', ?)", (text_provider,))
+            cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('music_provider', ?)", (music_provider,))
+
+        # 删除旧表
+        cursor.execute("DROP TABLE IF EXISTS provider_config")
 
         conn.commit()
         print(f"[数据库] 初始化完成: {DB_PATH}")

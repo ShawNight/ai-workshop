@@ -4,9 +4,10 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ProviderConfig:
-    """Provider 连接配置"""
+    """Provider 配置 — 所有字段均可从数据库加载"""
     name: str
     display_name: str
+    protocol: str           # "openai" 或 "minimax"
     chat_url: str
     api_key: str
     chat_model: str
@@ -14,14 +15,23 @@ class ProviderConfig:
     music_url: str = ""
     music_model: str = ""
     lyrics_url: str = ""
+    enabled: bool = True
 
     def check_error(self, data: dict) -> tuple[bool, str]:
-        """检查 API 响应是否有错误。返回 (is_error, error_msg)"""
-        raise NotImplementedError
+        """委托给协议处理器检查 API 响应错误"""
+        from providers.protocols import PROTOCOLS
+        handler = PROTOCOLS.get(self.protocol)
+        if not handler:
+            return False, ""
+        return handler.check_error(data)
 
     def extract_content(self, data: dict) -> str:
-        """从 API 响应中提取文本内容"""
-        raise NotImplementedError
+        """委托给协议处理器提取文本内容"""
+        from providers.protocols import PROTOCOLS
+        handler = PROTOCOLS.get(self.protocol)
+        if not handler:
+            return ""
+        return handler.extract_content(data)
 
 
 @dataclass
