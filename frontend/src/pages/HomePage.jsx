@@ -6,7 +6,7 @@ const features = [
   {
     icon: Music,
     title: 'AI 音乐创作',
-    description: '歌词优先的音乐创作流程，多轮对话打磨歌词，MiniMax API 生成专业音乐',
+    description: '歌词优先的音乐创作流程，多轮对话打磨歌词，AI 生成专业音乐',
     link: '/music',
     color: 'from-pink-500 to-rose-500'
   },
