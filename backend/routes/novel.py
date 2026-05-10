@@ -50,6 +50,7 @@ def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, 
         print(f"[LLM] Error: {resp.error}")
         return None
 
+    return resp.content
 
 
 def build_story_context(characters=None, relationships=None, locations=None, outline=None):
