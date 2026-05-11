@@ -29,7 +29,7 @@ export function ProviderEditModal({ mode, provider, onClose }) {
         protocol: provider.protocol,
         chatUrl: provider.chatUrl,
         chatModel: provider.chatModel,
-        apiKey: provider.apiKeyMasked || '',
+        apiKey: (provider?.apiKeyBroken || !provider?.apiKeyMasked) ? '' : (provider.apiKeyMasked || ''),
         supportsMusic: provider.supportsMusic,
         musicUrl: provider.musicUrl || '',
         musicModel: provider.musicModel || '',
@@ -143,15 +143,15 @@ export function ProviderEditModal({ mode, provider, onClose }) {
                 className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
               />
             </div>
-            <div>
-              <label className="block text-xs text-[var(--text-secondary)] mb-1">API Key</label>
-              <input
-                type="password"
-                value={form.apiKey}
-                onChange={(e) => handleChange('apiKey', e.target.value)}
-                placeholder={isEdit ? '不修改请留空' : 'sk-...'}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-              />
+<div>
+                <label className="block text-xs text-[var(--text-secondary)] mb-1">API Key</label>
+                <input
+                  type="password"
+                  value={form.apiKey}
+                  onChange={(e) => handleChange('apiKey', e.target.value)}
+                  placeholder={isEdit ? (provider?.apiKeyBroken ? '⚠️ Key解密失败，请重新输入' : '不修改请留空') : 'sk-...'}
+                  className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                />
             </div>
           </div>
 

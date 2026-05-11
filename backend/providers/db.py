@@ -1,12 +1,24 @@
 """Provider 数据库 CRUD 操作"""
 from datetime import datetime
+from cryptography.fernet import InvalidToken
 from database import get_connection
 from providers.crypto import encrypt_api_key, decrypt_api_key, mask_api_key
 
 
+def _safe_decrypt(cipher: str) -> str:
+    """解密 API Key，密钥不匹配时返回空字符串"""
+    if not cipher:
+        return ""
+    try:
+        return decrypt_api_key(cipher)
+    except InvalidToken:
+        return ""
+
+
 def db_row_to_dict(row) -> dict:
     """将数据库行转为前端友好的 dict（API Key 脱敏）"""
-    api_key_plain = decrypt_api_key(row["api_key"]) if row["api_key"] else ""
+    api_key_plain = _safe_decrypt(row["api_key"])
+    key_broken = bool(row["api_key"]) and not api_key_plain
     return {
         "name": row["name"],
         "displayName": row["display_name"],
@@ -14,7 +26,8 @@ def db_row_to_dict(row) -> dict:
         "chatUrl": row["chat_url"],
         "chatModel": row["chat_model"],
         "apiKeySet": bool(api_key_plain),
-        "apiKeyMasked": mask_api_key(api_key_plain),
+        "apiKeyBroken": key_broken,
+        "apiKeyMasked": mask_api_key(api_key_plain) if api_key_plain else ("***解密失败***" if key_broken else ""),
         "supportsMusic": bool(row["supports_music"]),
         "musicUrl": row["music_url"],
         "musicModel": row["music_model"],
@@ -33,7 +46,7 @@ def db_row_to_config(row) -> dict:
         "protocol": row["protocol"],
         "chat_url": row["chat_url"],
         "chat_model": row["chat_model"],
-        "api_key": decrypt_api_key(row["api_key"]) if row["api_key"] else "",
+        "api_key": _safe_decrypt(row["api_key"]),
         "supports_music": bool(row["supports_music"]),
         "music_url": row["music_url"] or "",
         "music_model": row["music_model"] or "",
@@ -119,7 +132,7 @@ def db_update_provider(name: str, data: dict) -> dict | None:
         # 智能处理 API Key：如果传入的是 masked 值则保留原值
         current_encrypted = row["api_key"]
         new_key = data.get("apiKey", "")
-        current_masked = mask_api_key(decrypt_api_key(current_encrypted)) if current_encrypted else ""
+        current_masked = mask_api_key(_safe_decrypt(current_encrypted)) if current_encrypted else ""
 
         if new_key and new_key != current_masked and new_key != "***":
             api_key_encrypted = encrypt_api_key(new_key)

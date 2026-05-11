@@ -64,7 +64,7 @@ export function ProviderManager() {
                 <option value="">-- 未选择 --</option>
                 {textProviders.map(p => (
                   <option key={p.name} value={p.name}>
-                    {p.displayName} {!p.apiKeySet && '(未配置 Key)'}
+                    {p.displayName} {p.apiKeyBroken ? '(Key 解密失败，请重新输入)' : !p.apiKeySet && '(未配置 Key)'}
                   </option>
                 ))}
               </select>
@@ -80,7 +80,7 @@ export function ProviderManager() {
                   <option value="">-- 未选择 --</option>
                   {musicProviders.map(p => (
                     <option key={p.name} value={p.name}>
-                      {p.displayName} {!p.apiKeySet && '(未配置 Key)'}
+{p.displayName} {p.apiKeyBroken ? '(Key 解密失败，请重新输入)' : !p.apiKeySet && '(未配置 Key)'}
                     </option>
                   ))}
                 </select>
@@ -92,7 +92,7 @@ export function ProviderManager() {
         <div className="space-y-1">
           {providers.map(p => (
             <div key={p.name} className="group flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50">
-              <span className={`h-2 w-2 rounded-full flex-shrink-0 ${p.apiKeySet ? 'bg-green-500' : 'bg-gray-300'}`} />
+              <span className={`h-2 w-2 rounded-full flex-shrink-0 ${p.apiKeyBroken ? 'bg-amber-500' : p.apiKeySet ? 'bg-green-500' : 'bg-gray-300'}`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1">
                   <span className="font-medium truncate">{p.displayName}</span>
@@ -101,7 +101,7 @@ export function ProviderManager() {
                   </span>
                 </div>
                 <div className="text-[10px] text-[var(--text-secondary)] truncate">
-                  {p.chatModel} · {p.apiKeyMasked}
+                  {p.chatModel} · {p.apiKeyBroken ? '⚠️ Key解密失败' : p.apiKeyMasked}
                 </div>
               </div>
               <div className="hidden group-hover:flex items-center gap-0.5">

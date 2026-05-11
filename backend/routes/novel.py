@@ -739,7 +739,7 @@ def create_character():
     if not description:
         return jsonify({"success": False, "error": "请提供角色描述"}), 400
 
-    prompts = render('novel/character.j2', name=name, role=role or "", description=description, genre=genre)
+    prompts = render('novel/character.j2', character_name=name, role=role or "", description=description, genre=genre)
     try:
         result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=LLM_MAX_TOKENS_SHORT)
 
@@ -879,7 +879,7 @@ def generate_location():
     if not name:
         return jsonify({"success": False, "error": "请提供地点名称"}), 400
 
-    prompts = render('novel/location.j2', name=name, type_=type_, genre=genre, premise=premise or "")
+    prompts = render('novel/location.j2', location_name=name, type_=type_, genre=genre, premise=premise or "")
     try:
         result = generate_with_llm(prompts['user'], system_prompt=prompts['system'], temperature=0.7, max_tokens=LLM_MAX_TOKENS_SHORT)
 
