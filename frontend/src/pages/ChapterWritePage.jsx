@@ -147,7 +147,7 @@ export function ChapterWritePage() {
     }
   };
 
-  const handleAcceptEntities = ({ characters, locations }) => {
+  const handleAcceptEntities = async ({ characters, locations }) => {
     if (!currentProject) return;
     const updates = {};
     if (characters.length > 0) {
@@ -158,8 +158,13 @@ export function ChapterWritePage() {
     }
     if (Object.keys(updates).length > 0) {
       updateProject(currentProject.id, updates);
-      markUnsaved();
-      toast.success(`已添加 ${characters.length} 个角色和 ${locations.length} 个地点`);
+      // 直接持久化到后端，不依赖 auto-save（auto-save 会因 chapters 未变而跳过）
+      try {
+        await novelApi.updateProject(currentProject.id, updates);
+        toast.success(`已添加 ${characters.length} 个角色和 ${locations.length} 个地点`);
+      } catch {
+        toast.error('保存失败，请手动保存');
+      }
     }
     setExtractedEntities(null);
   };

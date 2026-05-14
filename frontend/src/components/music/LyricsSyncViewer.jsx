@@ -3,6 +3,8 @@ import { cn } from '../../lib/utils';
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 
 // 解析 LRC 格式歌词为带时间戳的行
+const LRC_METADATA_RE = /^\[(ti|ar|al|by|offset|length):/i;
+
 const parseLRC = (lrcText) => {
   if (!lrcText) return null;
 
@@ -13,7 +15,8 @@ const parseLRC = (lrcText) => {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // 匹配 [mm:ss.xx] 或 [mm:ss] 格式
+    if (LRC_METADATA_RE.test(trimmed)) continue;
+
     const match = trimmed.match(/^\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\](.*)/);
     if (match) {
       const minutes = parseInt(match[1], 10);
@@ -22,16 +25,12 @@ const parseLRC = (lrcText) => {
       const time = minutes * 60 + seconds + ms / 1000;
       const text = match[4].trim();
 
-      // 跳过元数据标签（[ti:xxx], [ar:xxx] 等）
-      if (text || /^(\d{2}):(\d{2})/.test(trimmed)) {
-        timedLines.push({ time, text: text || '[Instrumental]', section: 'lrc' });
-      }
+      timedLines.push({ time, text: text || '[Instrumental]', section: 'lrc' });
     }
   }
 
   if (timedLines.length === 0) return null;
 
-  // 计算每行 duration
   for (let i = 0; i < timedLines.length; i++) {
     const nextTime = i + 1 < timedLines.length ? timedLines[i + 1].time : timedLines[i].time + 3;
     timedLines[i].duration = nextTime - timedLines[i].time;
@@ -172,18 +171,17 @@ export function LyricsSyncViewer({
       return;
     }
 
-    let activeIndex = -1;
-    for (let i = 0; i < timedLines.length; i++) {
-      const lineEndTime = timedLines[i].time + timedLines[i].duration;
-      if (currentTime >= timedLines[i].time && currentTime < lineEndTime) {
-        activeIndex = i;
-        break;
-      }
-      if (currentTime >= timedLines[i].time) {
-        activeIndex = i;
+    let lo = 0, hi = timedLines.length - 1, idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (timedLines[mid].time <= currentTime) {
+        idx = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
       }
     }
-    setActiveLineIndex(activeIndex);
+    setActiveLineIndex(idx);
   }, [currentTime, timedLines]);
   /* eslint-enable react-hooks/set-state-in-effect */
 

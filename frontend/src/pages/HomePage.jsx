@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Card, CardTitle, CardContent } from '../components/ui/Card';
-import { Music, BookOpen, Workflow, Sparkles, ArrowRight } from 'lucide-react';
+import { Music, BookOpen, Sparkles, ArrowRight } from 'lucide-react';
 
 const features = [
   {
@@ -16,13 +16,6 @@ const features = [
     description: '智能生成故事大纲、章节内容、角色设定，让创作更高效',
     link: '/novel',
     color: 'from-violet-500 to-purple-500'
-  },
-  {
-    icon: Workflow,
-    title: '工作流编排',
-    description: '拖拽式工作流构建器，连接不同 AI 工具，构建自动化创作 pipeline',
-    link: '/workflows',
-    color: 'from-cyan-500 to-blue-500'
   }
 ];
 
@@ -38,12 +31,11 @@ export function HomePage() {
           AI 个人工作坊
         </h1>
         <p className="text-lg text-[var(--text-secondary)] max-w-2xl mx-auto mb-8">
-          探索人工智能在创意领域的无限可能。从歌词到旋律，从故事大纲到完整章节，
-          从工作流设计到自动化执行 — 一切尽在指尖。
+          探索人工智能在创意领域的无限可能。从歌词到旋律，从故事大纲到完整章节 — 一切尽在指尖。
         </p>
       </section>
 
-      <section className="grid md:grid-cols-3 gap-6 pb-16">
+      <section className="grid md:grid-cols-2 gap-6 pb-16">
         {features.map((feature) => (
           <Link key={feature.title} to={feature.link}>
             <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer group">

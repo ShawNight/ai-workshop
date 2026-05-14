@@ -112,9 +112,22 @@ def init_db():
                 prompt TEXT DEFAULT '',
                 lyrics TEXT DEFAULT '',
                 audio_file TEXT,
+                duration_ms INTEGER DEFAULT 0,
+                lrc TEXT DEFAULT '',
                 created_at TEXT NOT NULL
             )
         """)
+
+        # music_history 表迁移
+        music_migrations = [
+            "ALTER TABLE music_history ADD COLUMN duration_ms INTEGER DEFAULT 0",
+            "ALTER TABLE music_history ADD COLUMN lrc TEXT DEFAULT ''",
+        ]
+        for m in music_migrations:
+            try:
+                cursor.execute(m)
+            except sqlite3.OperationalError:
+                pass
         
         # 工作流表
         cursor.execute("""
@@ -181,6 +194,24 @@ def init_db():
             )
         """)
 
+        # providers 表迁移：新增思考模式字段
+        provider_migrations = [
+            "ALTER TABLE providers ADD COLUMN thinking_enabled INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE providers ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'high'",
+            "ALTER TABLE providers ADD COLUMN thinking_budget INTEGER NOT NULL DEFAULT 10000",
+        ]
+        for m in provider_migrations:
+            try:
+                cursor.execute(m)
+            except sqlite3.OperationalError:
+                pass
+
+        # 将 minimax 协议迁移为 openai（MiniMax 兼容标准 OpenAI 协议）
+        try:
+            cursor.execute("UPDATE providers SET protocol = 'openai' WHERE protocol = 'minimax'")
+        except Exception:
+            pass
+
         # 从旧 provider_config 表迁移数据到 provider_settings
         try:
             cursor.execute("SELECT key, value FROM provider_config")
@@ -193,51 +224,34 @@ def init_db():
         except Exception:
             pass  # 旧表不存在，跳过
 
-        # 从 .env 引导种子数据（仅 providers 表为空时）
+        # 首次启动时插入默认 Provider 模板（仅 providers 表为空时，API Key 为空需用户在前端配置）
         cursor.execute("SELECT COUNT(*) as cnt FROM providers")
         if cursor.fetchone()["cnt"] == 0:
-            from config import DEEPSEEK_API_KEY, DEEPSEEK_CHAT_MODEL
-            from config import MINIMAX_API_KEY, MINIMAX_CHAT_MODEL, MINIMAX_MUSIC_MODEL
-            from providers.crypto import encrypt_api_key
             now = datetime.now().isoformat()
 
-            if DEEPSEEK_API_KEY:
-                cursor.execute("""INSERT INTO providers
-                    (name, display_name, protocol, chat_url, chat_model, api_key,
-                     supports_music, enabled, created_at, updated_at)
-                    VALUES (?, ?, 'openai', ?, ?, ?, 0, 1, ?, ?)""",
-                    ("deepseek", "DeepSeek",
-                     "https://api.deepseek.com/chat/completions",
-                     DEEPSEEK_CHAT_MODEL, encrypt_api_key(DEEPSEEK_API_KEY),
-                     now, now))
+            cursor.execute("""INSERT INTO providers
+                (name, display_name, protocol, chat_url, chat_model, api_key,
+                 supports_music, enabled, created_at, updated_at)
+                VALUES (?, ?, 'openai', ?, ?, '', 0, 1, ?, ?)""",
+                ("deepseek", "DeepSeek",
+                 "https://api.deepseek.com/chat/completions",
+                 "deepseek-chat",
+                 now, now))
 
-            if MINIMAX_API_KEY:
-                cursor.execute("""INSERT INTO providers
-                    (name, display_name, protocol, chat_url, chat_model, api_key,
-                     supports_music, music_url, music_model, lyrics_url, enabled, created_at, updated_at)
-                    VALUES (?, ?, 'minimax', ?, ?, ?, 1, ?, ?, ?, 1, ?, ?)""",
-                    ("minimax", "MiniMax",
-                     "https://api.minimaxi.com/v1/chat/completions",
-                     MINIMAX_CHAT_MODEL, encrypt_api_key(MINIMAX_API_KEY),
-                     "https://api.minimaxi.com/v1/music_generation",
-                     MINIMAX_MUSIC_MODEL,
-                     "https://api.minimaxi.com/v1/lyrics_generation",
-                     now, now))
+            cursor.execute("""INSERT INTO providers
+                (name, display_name, protocol, chat_url, chat_model, api_key,
+                 supports_music, music_url, music_model, lyrics_url, enabled, created_at, updated_at)
+                VALUES (?, ?, 'openai', ?, ?, '', 1, ?, ?, ?, 1, ?, ?)""",
+                ("minimax", "MiniMax",
+                 "https://api.minimaxi.com/v1/chat/completions",
+                 "MiniMax-M2.7",
+                 "https://api.minimaxi.com/v1/music_generation",
+                 "music-2.6",
+                 "https://api.minimaxi.com/v1/lyrics_generation",
+                 now, now))
 
-            # 迁移旧设置或使用默认值
-            text_provider = "deepseek" if DEEPSEEK_API_KEY else "minimax"
-            music_provider = "minimax" if MINIMAX_API_KEY else ""
-            cursor.execute("SELECT value FROM provider_settings WHERE key = 'text_provider'")
-            row = cursor.fetchone()
-            if row:
-                text_provider = row["value"]
-            cursor.execute("SELECT value FROM provider_settings WHERE key = 'music_provider'")
-            row = cursor.fetchone()
-            if row:
-                music_provider = row["value"]
-
-            cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('text_provider', ?)", (text_provider,))
-            cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('music_provider', ?)", (music_provider,))
+            cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('text_provider', 'deepseek')")
+            cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('music_provider', 'minimax')")
 
         # 删除旧表
         cursor.execute("DROP TABLE IF EXISTS provider_config")

@@ -98,18 +98,23 @@ def test_provider(name):
         return jsonify({"success": False, "error": "未配置 API Key"})
 
     try:
+        protocol = PROTOCOLS.get(provider.protocol)
+        if not protocol:
+            return jsonify({"success": False, "error": f"未知协议: {provider.protocol}"})
+
+        headers = protocol.build_headers(provider.api_key)
+        body = protocol.build_body(
+            model=provider.chat_model,
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=5,
+            temperature=0,
+            thinking_enabled=False,
+        )
+
         resp = http_requests.post(
             provider.chat_url,
-            json={
-                "model": provider.chat_model,
-                "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 5,
-                "temperature": 0,
-            },
-            headers={
-                "Authorization": f"Bearer {provider.api_key}",
-                "Content-Type": "application/json",
-            },
+            json=body,
+            headers=headers,
             proxies=get_proxies(),
             timeout=15,
         )
@@ -133,7 +138,8 @@ def list_protocols():
     for name, proto in PROTOCOLS.items():
         protocols.append({
             "name": name,
-            "displayName": "OpenAI 兼容" if name == "openai" else "MiniMax",
+            "displayName": proto.get_display_name(),
+            "supportsThinking": proto.supports_thinking(),
         })
     return jsonify({"success": True, "protocols": protocols})
 

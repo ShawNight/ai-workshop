@@ -10,7 +10,6 @@ import database
 
 from routes.music import music_bp
 from routes.novel import novel_bp
-from routes.workflow import workflow_bp
 from routes.export import export_bp
 from routes.provider import provider_bp
 
@@ -22,7 +21,6 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app.register_blueprint(music_bp, url_prefix='/api/music')
 app.register_blueprint(novel_bp, url_prefix='/api/novel')
-app.register_blueprint(workflow_bp, url_prefix='/api/workflows')
 app.register_blueprint(export_bp, url_prefix='/api/music/export')
 app.register_blueprint(provider_bp, url_prefix='/api/provider')
 

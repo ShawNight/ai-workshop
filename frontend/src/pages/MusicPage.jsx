@@ -10,6 +10,7 @@ import { useMusicStore } from '../store/musicStore';
 import { cn } from '../lib/utils';
 import { Music, Sparkles, RefreshCw, Play, Pause, Download, History, Trash2, FileMusic, X, Volume2, Wand2, Edit3 } from 'lucide-react';
 import { LyricsEditor } from '../components/music/LyricsEditor';
+import { LyricsSyncViewer } from '../components/music/LyricsSyncViewer';
 
 export function MusicPage() {
   const {
@@ -21,6 +22,8 @@ export function MusicPage() {
     generationProgress,
     audioUrl,
     musicHistory,
+    audioDuration,
+    audioLrc,
     setUserDescription,
     setPrompt,
     setLyrics,
@@ -28,6 +31,8 @@ export function MusicPage() {
     setGenerationStatus,
     setGenerationProgress,
     setAudioUrl,
+    setAudioDuration,
+    setAudioLrc,
     setJobId,
     addMusicToHistory,
     loadFromHistory,
@@ -133,7 +138,7 @@ export function MusicPage() {
 
       try {
         const response = await musicApi.getStatus(jobId);
-        const { status, progress, error, outputFile, title } = response.data;
+        const { status, progress, error, outputFile, title, durationMs, lrc } = response.data;
 
         setGenerationProgress(progress);
 
@@ -143,6 +148,10 @@ export function MusicPage() {
           const audioUrl = `/api/music/download/${outputFile}`;
           setAudioUrl(audioUrl);
 
+          const durationSec = (durationMs || 0) / 1000;
+          setAudioDuration(durationSec);
+          setAudioLrc(lrc || '');
+
           addMusicToHistory({
             id: jobId,
             title: title || songTitle,
@@ -150,6 +159,8 @@ export function MusicPage() {
             prompt,
             lyrics,
             audioUrl,
+            durationMs: durationMs || 0,
+            lrc: lrc || '',
             createdAt: new Date().toISOString()
           });
 
@@ -430,6 +441,8 @@ export function MusicPage() {
           audioUrl={audioUrl}
           lyrics={lyrics}
           title={songTitle}
+          lrc={audioLrc}
+          audioDuration={audioDuration}
           onClose={() => setShowPlayer(false)}
         />
       )}
@@ -438,30 +451,53 @@ export function MusicPage() {
 }
 
 // 音乐播放弹框组件
-function MusicPlayerModal({ audioUrl, lyrics, title, onClose }) {
+function MusicPlayerModal({ audioUrl, lyrics, title, lrc, audioDuration, onClose }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [browserDuration, setBrowserDuration] = useState(0);
   const audioRef = useRef(null);
+  const rafRef = useRef(null);
+
+  const duration = audioDuration > 0 ? audioDuration : browserDuration;
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration);
+    const handleDurationChange = () => {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setBrowserDuration(audio.duration);
+      }
+    };
     const handleEnded = () => setIsPlaying(false);
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('durationchange', handleDurationChange);
+    audio.addEventListener('loadedmetadata', handleDurationChange);
     audio.addEventListener('ended', handleEnded);
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('durationchange', handleDurationChange);
+      audio.removeEventListener('loadedmetadata', handleDurationChange);
       audio.removeEventListener('ended', handleEnded);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    const tick = () => {
+      const audio = audioRef.current;
+      if (audio && !audio.paused) {
+        setCurrentTime(audio.currentTime);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isPlaying]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -497,23 +533,12 @@ function MusicPlayerModal({ audioUrl, lyrics, title, onClose }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const lyricsLines = lyrics ? lyrics.split('\n').filter(line => line.trim()) : [];
-
-  const getCurrentLineIndex = () => {
-    if (!duration || !lyricsLines.length) return -1;
-    const lineDuration = duration / lyricsLines.length;
-    return Math.floor(currentTime / lineDuration);
-  };
-
-  const currentLineIndex = getCurrentLineIndex();
-
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={onClose}>
       <div
         className="w-full max-w-3xl max-h-[90vh] bg-[var(--surface)] rounded-xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
             <Volume2 className="h-5 w-5 text-[var(--primary)]" />
@@ -527,31 +552,19 @@ function MusicPlayerModal({ audioUrl, lyrics, title, onClose }) {
           </Button>
         </div>
 
-        {/* 歌词区域 */}
-        <div className="flex-1 overflow-y-auto p-6 min-h-[200px]">
-          <div className="space-y-2 text-center">
-            {lyricsLines.map((line, index) => {
-              const isActive = index === currentLineIndex;
-              const isPast = index < currentLineIndex;
-
-              return (
-                <p
-                  key={index}
-                  className={cn(
-                    'text-lg leading-relaxed transition-all duration-300 py-2',
-                    isActive && 'text-[var(--primary)] font-bold scale-105',
-                    isPast && 'text-[var(--text-secondary)] opacity-50',
-                    !isPast && !isActive && 'text-[var(--text-primary)]'
-                  )}
-                >
-                  {line.trim()}
-                </p>
-              );
-            })}
-          </div>
+        <div className="flex-1 overflow-y-auto min-h-[200px]">
+          {lyrics && (
+            <LyricsSyncViewer
+              lyrics={lyrics}
+              lrc={lrc}
+              currentTime={currentTime}
+              duration={duration}
+              isPlaying={isPlaying}
+              onSeek={handleSeek}
+            />
+          )}
         </div>
 
-        {/* 播放控制 */}
         <div className="p-4 border-t border-[var(--border)] space-y-4">
           <div
             className="h-2 rounded-full bg-[var(--border)] cursor-pointer"

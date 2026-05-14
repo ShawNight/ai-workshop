@@ -3,7 +3,6 @@ import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 import { Play, Pause, Download, RefreshCw, CheckCircle, XCircle, ListMusic } from 'lucide-react';
 import { LyricsSyncViewer } from './LyricsSyncViewer';
-import { musicApi } from '../../api';
 
 export function MusicPlayer({
   audioUrl,
@@ -12,91 +11,58 @@ export function MusicPlayer({
   progress,
   onGenerate,
   onDownload,
+  lrc: lrcProp,
+  audioDuration,
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [lrc, setLrc] = useState('');
-  const [lrcLoading, setLrcLoading] = useState(false);
-  const [viewMode, setViewMode] = useState('player'); // 'player' | 'lyrics'
+  const [viewMode, setViewMode] = useState('player');
   const audioRef = useRef(null);
-  const progressIntervalRef = useRef(null);
-  const lrcFetchedRef = useRef(false);
+  const rafRef = useRef(null);
 
-  // 重置状态当 audioUrl 变化时
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    setIsPlaying(false);
-    setCurrentTime(0);
-    setDuration(0);
-    setLrc('');
-    lrcFetchedRef.current = false;
-  }, [audioUrl]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  // 获取到音频时长后，自动请求 LRC 生成
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    if (duration > 0 && lyrics && !lrc && !lrcLoading && !lrcFetchedRef.current) {
-      lrcFetchedRef.current = true;
-      setLrcLoading(true);
-      musicApi.generateLrc({ lyrics, duration })
-        .then(res => {
-          if (res.data?.success && res.data.lrc) {
-            setLrc(res.data.lrc);
-          }
-        })
-        .catch(err => {
-          console.warn('[LRC] 生成失败，将使用估算模式:', err.message);
-        })
-        .finally(() => setLrcLoading(false));
-    }
-  }, [duration, lyrics, lrc, lrcLoading]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  const effectiveDuration = audioDuration > 0 ? audioDuration : duration;
 
   // 音频事件监听
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration);
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
+    const handleLoadedMetadata = () => {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
     };
+    const handleEnded = () => setIsPlaying(false);
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('durationchange', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('durationchange', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
     };
   }, [audioUrl]);
 
-  // 模拟播放进度（当 audioUrl 存在但音频未加载时）
+  // 播放时用 rAF 同步 currentTime，比 timeupdate 更流畅
   useEffect(() => {
-    if (isPlaying && audioRef.current?.paused && audioUrl) {
-      // 启动进度模拟
-      progressIntervalRef.current = setInterval(() => {
-        setCurrentTime(prev => {
-          const newTime = prev + 0.1;
-          if (duration > 0 && newTime >= duration) {
-            setIsPlaying(false);
-            return 0;
-          }
-          return newTime;
-        });
-      }, 100);
-    } else {
-      clearInterval(progressIntervalRef.current);
-    }
+    if (!isPlaying) return;
 
-    return () => clearInterval(progressIntervalRef.current);
-  }, [isPlaying, audioUrl, duration]);
+    const tick = () => {
+      const audio = audioRef.current;
+      if (audio && !audio.paused) {
+        setCurrentTime(audio.currentTime);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isPlaying]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -119,10 +85,10 @@ export function MusicPlayer({
   }, []);
 
   const handleProgressClick = (e) => {
-    if (!duration) return;
+    if (!effectiveDuration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = (e.clientX - rect.left) / rect.width;
-    handleSeek(percent * duration);
+    handleSeek(percent * effectiveDuration);
   };
 
   const formatTime = (seconds) => {
@@ -134,7 +100,7 @@ export function MusicPlayer({
 
   return (
     <div className="space-y-4">
-      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      <audio ref={audioRef} src={audioUrl} preload="metadata" key={audioUrl} />
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -153,7 +119,6 @@ export function MusicPlayer({
           )}
         </div>
 
-        {/* 视图切换按钮 */}
         {audioUrl && lyrics && (
           <div className="flex items-center gap-1 bg-[var(--border)] rounded-lg p-0.5">
             <button
@@ -188,14 +153,13 @@ export function MusicPlayer({
         )}
       </div>
 
-      {/* 歌词同步视图 */}
       {viewMode === 'lyrics' && lyrics && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
           <LyricsSyncViewer
             lyrics={lyrics}
-            lrc={lrc}
+            lrc={lrcProp}
             currentTime={currentTime}
-            duration={duration}
+            duration={effectiveDuration}
             isPlaying={isPlaying}
             onSeek={handleSeek}
             className="max-h-[400px]"
@@ -203,7 +167,6 @@ export function MusicPlayer({
         </div>
       )}
 
-      {/* 生成进度 */}
       {status === 'generating' && (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
@@ -219,7 +182,6 @@ export function MusicPlayer({
         </div>
       )}
 
-      {/* 播放器视图 */}
       {audioUrl && viewMode === 'player' && (
         <>
           <div className="flex items-center gap-4">
@@ -244,12 +206,12 @@ export function MusicPlayer({
               >
                 <div
                   className="h-full rounded-full bg-[var(--primary)] transition-all"
-                  style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
+                  style={{ width: effectiveDuration ? `${(currentTime / effectiveDuration) * 100}%` : '0%' }}
                 />
               </div>
               <div className="flex justify-between text-xs text-[var(--text-secondary)] mt-1">
                 <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(duration)}</span>
+                <span>{formatTime(effectiveDuration)}</span>
               </div>
             </div>
           </div>

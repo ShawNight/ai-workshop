@@ -19,6 +19,8 @@ export const useMusicStore = create(
       generationStatus: 'idle',
       generationProgress: 0,
       audioUrl: null,
+      audioDuration: 0,
+      audioLrc: '',
       jobId: null,
 
       // 已完成的音乐历史记录
@@ -33,16 +35,14 @@ export const useMusicStore = create(
       setGenerationStatus: (status) => set({ generationStatus: status }),
       setGenerationProgress: (progress) => set({ generationProgress: progress }),
       setAudioUrl: (url) => set({ audioUrl: url }),
+      setAudioDuration: (d) => set({ audioDuration: d }),
+      setAudioLrc: (l) => set({ audioLrc: l }),
       setJobId: (id) => set({ jobId: id }),
 
       // ============ 音乐历史记录管理 ============
 
-      /**
-       * 添加已完成的音乐到历史记录
-       * 只有真正成功生成的音乐才会被保存
-       */
       addMusicToHistory: (music) => set((state) => ({
-        musicHistory: [music, ...state.musicHistory].slice(0, 50) // 最多保留50条
+        musicHistory: [music, ...state.musicHistory].slice(0, 50)
       })),
 
       /**
@@ -58,6 +58,8 @@ export const useMusicStore = create(
             userDescription: music.userDescription || '',
             prompt: music.prompt || '',
             audioUrl: music.audioUrl,
+            audioDuration: (music.durationMs || 0) / 1000,
+            audioLrc: music.lrc || '',
             generationStatus: 'completed'
           });
         }
@@ -81,6 +83,8 @@ export const useMusicStore = create(
         generationStatus: 'idle',
         generationProgress: 0,
         audioUrl: null,
+        audioDuration: 0,
+        audioLrc: '',
         jobId: null
       }),
 
@@ -91,6 +95,8 @@ export const useMusicStore = create(
         generationStatus: 'idle',
         generationProgress: 0,
         audioUrl: null,
+        audioDuration: 0,
+        audioLrc: '',
         jobId: null
       })
     }),

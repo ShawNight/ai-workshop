@@ -33,6 +33,9 @@ def db_row_to_dict(row) -> dict:
         "musicModel": row["music_model"],
         "lyricsUrl": row["lyrics_url"],
         "enabled": bool(row["enabled"]),
+        "thinkingEnabled": bool(row["thinking_enabled"]) if "thinking_enabled" in row.keys() else False,
+        "reasoningEffort": row["reasoning_effort"] if "reasoning_effort" in row.keys() else "high",
+        "thinkingBudget": row["thinking_budget"] if "thinking_budget" in row.keys() else 10000,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -52,6 +55,9 @@ def db_row_to_config(row) -> dict:
         "music_model": row["music_model"] or "",
         "lyrics_url": row["lyrics_url"] or "",
         "enabled": bool(row["enabled"]),
+        "thinking_enabled": bool(row["thinking_enabled"]) if "thinking_enabled" in row.keys() else False,
+        "reasoning_effort": row["reasoning_effort"] if "reasoning_effort" in row.keys() else "high",
+        "thinking_budget": row["thinking_budget"] if "thinking_budget" in row.keys() else 10000,
     }
 
 
@@ -98,8 +104,10 @@ def db_create_provider(data: dict) -> dict:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO providers (name, display_name, protocol, chat_url, chat_model,
-                api_key, supports_music, music_url, music_model, lyrics_url, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                api_key, supports_music, music_url, music_model, lyrics_url, enabled,
+                thinking_enabled, reasoning_effort, thinking_budget,
+                created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
         """, (
             data["name"],
             data.get("displayName", data["name"]),
@@ -111,6 +119,9 @@ def db_create_provider(data: dict) -> dict:
             data.get("musicUrl", ""),
             data.get("musicModel", ""),
             data.get("lyricsUrl", ""),
+            1 if data.get("thinkingEnabled") else 0,
+            data.get("reasoningEffort", "high"),
+            data.get("thinkingBudget", 10000),
             now, now,
         ))
         conn.commit()
@@ -143,7 +154,9 @@ def db_update_provider(name: str, data: dict) -> dict | None:
             UPDATE providers SET
                 display_name = ?, protocol = ?, chat_url = ?, chat_model = ?,
                 api_key = ?, supports_music = ?, music_url = ?, music_model = ?,
-                lyrics_url = ?, updated_at = ?
+                lyrics_url = ?,
+                thinking_enabled = ?, reasoning_effort = ?, thinking_budget = ?,
+                updated_at = ?
             WHERE name = ?
         """, (
             data.get("displayName", row["display_name"]),
@@ -155,6 +168,9 @@ def db_update_provider(name: str, data: dict) -> dict | None:
             data.get("musicUrl", row["music_url"]),
             data.get("musicModel", row["music_model"]),
             data.get("lyricsUrl", row["lyrics_url"]),
+            1 if data.get("thinkingEnabled", bool(row["thinking_enabled"] if "thinking_enabled" in row.keys() else 0)) else 0,
+            data.get("reasoningEffort", row["reasoning_effort"] if "reasoning_effort" in row.keys() else "high"),
+            data.get("thinkingBudget", row["thinking_budget"] if "thinking_budget" in row.keys() else 10000),
             now, name,
         ))
         conn.commit()

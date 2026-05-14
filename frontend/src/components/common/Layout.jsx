@@ -1,15 +1,17 @@
 import { NavLink } from 'react-router-dom';
-import { Music, BookOpen, Workflow, Home, Sun, Moon, Menu, X } from 'lucide-react';
+import { Music, BookOpen, Home, Sun, Moon, Menu, X, Settings } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../store/themeStore';
 import { useState } from 'react';
-import { ProviderManager } from './ProviderManager';
 
 const navItems = [
   { to: '/', icon: Home, label: '首页' },
   { to: '/music', icon: Music, label: '音乐创作' },
   { to: '/novel', icon: BookOpen, label: '小说写作' },
-  { to: '/workflows', icon: Workflow, label: '工作流编排' }
+];
+
+const bottomNavItems = [
+  { to: '/settings', icon: Settings, label: '设置' },
 ];
 
 export function Sidebar() {
@@ -58,10 +60,23 @@ export function Sidebar() {
             ))}
           </nav>
 
-          <div className="p-4 border-t border-[var(--border)]">
-            <ProviderManager />
-          </div>
-          <div className="p-4 border-t border-[var(--border)]">
+          <div className="p-4 border-t border-[var(--border)] space-y-1">
+            {bottomNavItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-[var(--primary)] text-white'
+                    : 'text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800'
+                )}
+                onClick={() => setMobileOpen(false)}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+              </NavLink>
+            ))}
             <button
               onClick={toggleTheme}
               className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"

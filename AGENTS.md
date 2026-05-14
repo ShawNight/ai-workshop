@@ -6,7 +6,7 @@
 ai-workshop/
 ├── frontend/          # React 19 + Vite (port 5173)
 ├── backend/
-│   ├── routes/        # API 路由（music.py, novel.py, workflow.py, export.py）
+│   ├── routes/        # API 路由（music.py, novel.py, export.py）
 │   ├── prompts/       # Jinja2 提示词模板（.j2 文件，与路由代码分离）
 │   └── ...
 ├── README.md          # 项目说明与功能清单（功能变更时必须同步更新）
@@ -35,7 +35,7 @@ cd frontend && npm run lint                    # ESLint 检查
 - **API 代理**: Vite 将 `/api/*` 请求代理到 `http://localhost:3001` (见 `frontend/vite.config.js`)
 - **无 TypeScript**: 项目使用纯 JSX，无类型检查命令
 - **状态管理**: Zustand store 在 `frontend/src/store/`
-- **API 层**: `frontend/src/api/index.js` - axios 实例，包含 musicApi、novelApi、workflowApi
+- **API 层**: `frontend/src/api/index.js` - axios 实例，包含 musicApi、novelApi
 - **提示词管理**: `backend/prompts/` - Jinja2 模板文件，路由代码通过 `render('novel/chapter.j2', **kwargs)` 调用。含 `---SYSTEM---`/`---USER---` 分隔符的模板返回 `{'system': '...', 'user': '...'}，否则返回字符串
 - **共享 Hooks**: `useAutoSave`（自动保存+防抖）、`useChapterActions`（AI生成/续写）、`useHotkeys`（快捷键）
 - **共享工具**: `formatContent.js`（formatAIContent/stripHtml/generateId）、`constants/novel.js`（状态枚举/关系类型/地点类型）
@@ -50,7 +50,6 @@ cd frontend && npm run lint                    # ESLint 检查
 |------|------|------|
 | `/api/music/*` | `routes/music.py` | 歌词生成、MiniMax 音乐生成 API |
 | `/api/novel/*` | `routes/novel.py` | 小说项目 CRUD、大纲/章节/角色生成、续写、改写、头脑风暴、版本草稿 |
-| `/api/workflows/*` | `routes/workflow.py` | 工作流 CRUD 和执行 |
 | `/api/music/export/*` | `routes/export.py` | 网易云音乐导出 |
 
 ### 小说 API 端点详情
@@ -106,7 +105,6 @@ HOST=0.0.0.0
 - `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴、概要建议卡片、实体审阅面板
 - `frontend/src/components/novel/tabs/*` - 大纲 Tab（含方向引导弹窗 AppendOutlineModal）、角色 Tab（含批量生成+审阅+内联编辑）、世界观 Tab（含批量生成+审阅+内联编辑+AI生成描述）、设定 Tab、导出 Tab
 - `frontend/src/components/novel/chat/*` - AI 对话面板（character/world/relation 模式）、建议卡片
-- `frontend/src/components/workflow/*` - 画布、节点面板、节点编辑器
 - `frontend/src/components/ui/*` - shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress)
 
 ## 前端路由

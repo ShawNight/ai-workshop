@@ -2,6 +2,7 @@
 import re
 import requests
 from providers.base import ProviderConfig, LLMResponse
+from providers.protocols import PROTOCOLS
 from config import get_proxies
 
 # Provider 内存缓存
@@ -42,23 +43,24 @@ def get_all_providers() -> dict[str, ProviderConfig]:
 
 
 def get_current_text_provider() -> str:
-    """从数据库获取当前文本 provider"""
     from providers.db import db_get_setting
     value = db_get_setting("text_provider")
     if value:
         return value
-    from config import DEFAULT_TEXT_PROVIDER
-    return DEFAULT_TEXT_PROVIDER
+    if _PROVIDERS:
+        return next(iter(_PROVIDERS.keys()))
+    return "deepseek"
 
 
 def get_current_music_provider() -> str:
-    """从数据库获取当前音乐 provider"""
     from providers.db import db_get_setting
     value = db_get_setting("music_provider")
     if value:
         return value
-    from config import DEFAULT_MUSIC_PROVIDER
-    return DEFAULT_MUSIC_PROVIDER
+    for name, p in _PROVIDERS.items():
+        if p.supports_music:
+            return name
+    return "minimax"
 
 
 def set_provider_config(key: str, value: str):
@@ -93,19 +95,27 @@ def call_llm(messages, temperature=0.7, max_tokens=None, timeout=None,
     if timeout is None:
         timeout = max(120, max_tokens // 20 + 30)
 
+    # 通过协议处理器构建请求
+    protocol = PROTOCOLS.get(provider.protocol)
+    if not protocol:
+        return LLMResponse(success=False, error=f"未知协议: {provider.protocol}")
+
+    headers = protocol.build_headers(provider.api_key)
+    body = protocol.build_body(
+        model=provider.chat_model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        thinking_enabled=provider.thinking_enabled,
+        reasoning_effort=provider.reasoning_effort,
+        thinking_budget=provider.thinking_budget,
+    )
+
     try:
         response = requests.post(
             provider.chat_url,
-            json={
-                "model": provider.chat_model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            },
-            headers={
-                "Authorization": f"Bearer {provider.api_key}",
-                "Content-Type": "application/json",
-            },
+            json=body,
+            headers=headers,
             proxies=get_proxies(),
             timeout=timeout,
         )
@@ -122,10 +132,13 @@ def call_llm(messages, temperature=0.7, max_tokens=None, timeout=None,
             print(f"[LLM:{provider.name}] API returned empty content")
             return LLMResponse(success=False, error="API returned empty content", raw=data)
 
-        # Strip thinking/ reasoning blocks
+        # 提取思考链内容
+        reasoning = provider.extract_reasoning(data)
+
+        # Strip <think/> tags from content (兜底处理部分模型内联思维链)
         content = re.sub(r'<think.*?</think />\s*', '', content, flags=re.DOTALL).strip()
 
-        return LLMResponse(success=True, content=content, raw=data)
+        return LLMResponse(success=True, content=content, reasoning=reasoning, raw=data)
 
     except requests.exceptions.Timeout:
         print(f"[LLM:{provider.name}] Request timeout")

@@ -174,17 +174,111 @@ def generate_lyrics_with_llm(prompt_text):
         raise
 
 
-def save_music_to_db(job_id, title, user_description, prompt, lyrics, audio_file):
+def save_music_to_db(job_id, title, user_description, prompt, lyrics, audio_file, duration_ms=0, lrc=""):
     """保存已完成的音乐到数据库"""
     with get_connection() as conn:
         cursor = conn.cursor()
         now = datetime.now().isoformat()
 
         cursor.execute("""
-            INSERT INTO music_history (id, title, user_description, prompt, lyrics, audio_file, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (job_id, title, user_description, prompt, lyrics, audio_file, now))
+            INSERT INTO music_history (id, title, user_description, prompt, lyrics, audio_file, duration_ms, lrc, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (job_id, title, user_description, prompt, lyrics, audio_file, duration_ms, lrc, now))
         conn.commit()
+
+
+def _equal_distribute_lrc(lyrics_text, duration_seconds):
+    """将歌词按行等距分配时间戳，作为 LRC 生成失败的兜底"""
+    raw_lines = [l.strip() for l in (lyrics_text or '').split('\n') if l.strip()]
+    if not raw_lines or duration_seconds <= 0:
+        return ""
+
+    SECTION_RE = re.compile(r'^\[(verse|chorus|bridge|pre[- ]?chorus|intro|outro|solo|instrumental|主歌|副歌|桥段|预副歌|前奏|尾奏|尾声|间奏|器乐)\]', re.IGNORECASE)
+    content_lines = [l for l in raw_lines if not SECTION_RE.match(l)]
+    if not content_lines:
+        return ""
+
+    # 前奏占 5%，尾奏占 3%，剩余给歌词行
+    intro = max(0.5, duration_seconds * 0.05)
+    outro = max(0.3, duration_seconds * 0.03)
+    body = max(1.0, duration_seconds - intro - outro)
+    per_line = body / len(content_lines)
+
+    result_lines = []
+    cur = intro
+    for line in content_lines:
+        mins = int(cur) // 60
+        secs = cur - mins * 60
+        ts = f"[{mins:02d}:{secs:05.2f}]"
+        result_lines.append(f"{ts}{line}")
+        cur += per_line
+    return "\n".join(result_lines)
+
+
+def generate_lrc_for_lyrics(lyrics, duration_seconds):
+    """同步生成 LRC，失败回退等距分配。返回字符串（可能为空）"""
+    if not lyrics:
+        return ""
+
+    duration_hint = ""
+    if duration_seconds > 0:
+        mins = int(duration_seconds) // 60
+        secs = int(duration_seconds) % 60
+        duration_hint = f"歌曲总时长为{mins}分{secs}秒（{duration_seconds:.2f}秒），"
+
+    lines_for_count = [l.strip() for l in lyrics.strip().split('\n') if l.strip()]
+    SECTION_RE = re.compile(r'^\[(verse|chorus|bridge|pre[- ]?chorus|intro|outro|solo|instrumental|主歌|副歌|桥段|预副歌|前奏|尾奏|尾声|间奏|器乐)\]', re.IGNORECASE)
+    expected_content_lines = [l for l in lines_for_count if not SECTION_RE.match(l)]
+    expected_count = len(expected_content_lines)
+
+    try:
+        prompts = render('music/lrc.j2', lyrics=lyrics, duration_hint=duration_hint)
+        resp = call_llm(
+            messages=[
+                {"role": "system", "content": prompts['system']},
+                {"role": "user", "content": prompts['user']}
+            ],
+            temperature=0.3,
+            max_tokens=2048,
+            timeout=60,
+        )
+
+        if not resp.success or not resp.content:
+            print(f"[LRC生成] LLM 失败，使用等距分配: {resp.error if not resp.success else 'empty content'}")
+            return _equal_distribute_lrc(lyrics, duration_seconds)
+
+        content = resp.content.strip()
+        content = re.sub(r'^```lrc\s*', '', content)
+        content = re.sub(r'^```\s*', '', content)
+        content = re.sub(r'\s*```$', '', content)
+
+        # 校验 LRC：必须有时间戳行，且行数应大致匹配
+        lrc_lines = [l for l in content.strip().split('\n') if re.match(r'\[\d{2}:\d{2}', l)]
+        if not lrc_lines:
+            print("[LRC生成] 无有效时间戳行，回退等距分配")
+            return _equal_distribute_lrc(lyrics, duration_seconds)
+
+        # 行数偏差超过 50% 视为不可信
+        if expected_count > 0:
+            ratio = len(lrc_lines) / expected_count
+            if ratio < 0.5 or ratio > 2.0:
+                print(f"[LRC生成] 行数偏差过大 ({len(lrc_lines)}/{expected_count})，回退等距分配")
+                return _equal_distribute_lrc(lyrics, duration_seconds)
+
+        # 校验时间戳不超过总时长（留 5% 容差）
+        if duration_seconds > 0:
+            last_line = lrc_lines[-1]
+            m = re.match(r'\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]', last_line)
+            if m:
+                last_t = int(m.group(1)) * 60 + int(m.group(2)) + (int(m.group(3).ljust(3, '0')) / 1000 if m.group(3) else 0)
+                if last_t > duration_seconds * 1.1:
+                    print(f"[LRC生成] 末行时间戳 {last_t}s 超过总时长 {duration_seconds}s，回退等距分配")
+                    return _equal_distribute_lrc(lyrics, duration_seconds)
+
+        return content.strip()
+    except Exception as e:
+        print(f"[LRC生成] 异常，回退等距分配: {e}")
+        return _equal_distribute_lrc(lyrics, duration_seconds)
 
 
 @music_bp.route("/prompt", methods=["POST"])
@@ -355,6 +449,17 @@ def generate_music():
             with open(output_file, "wb") as f:
                 f.write(audio_bytes)
 
+            # 提取真实时长（毫秒）
+            extra_info = result.get("extra_info") or {}
+            duration_ms = int(extra_info.get("music_duration") or 0)
+            duration_seconds = duration_ms / 1000.0 if duration_ms > 0 else 0
+            jobs[job_id]["durationMs"] = duration_ms
+
+            # 同步生成 LRC（带兜底）
+            jobs[job_id]["progress"] = 80
+            lrc_content = generate_lrc_for_lyrics(lyrics, duration_seconds)
+            jobs[job_id]["lrc"] = lrc_content
+
             jobs[job_id]["status"] = "completed"
             jobs[job_id]["progress"] = 100
 
@@ -366,7 +471,9 @@ def generate_music():
                     jobs[job_id].get("user_description", ""),
                     jobs[job_id].get("prompt", ""),
                     lyrics,
-                    os.path.basename(output_file)
+                    os.path.basename(output_file),
+                    duration_ms=duration_ms,
+                    lrc=lrc_content,
                 )
             except Exception as e:
                 print(f"[警告] 保存音乐历史失败: {e}")
@@ -403,6 +510,8 @@ def get_status(job_id):
             if job.get("outputFile")
             else None,
             "title": job.get("title", ""),
+            "durationMs": job.get("durationMs", 0),
+            "lrc": job.get("lrc", ""),
         }
     )
 
@@ -413,7 +522,7 @@ def get_music_history():
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, title, user_description, prompt, lyrics, audio_file, created_at
+            SELECT id, title, user_description, prompt, lyrics, audio_file, duration_ms, lrc, created_at
             FROM music_history
             ORDER BY created_at DESC
             LIMIT 50
@@ -429,7 +538,9 @@ def get_music_history():
                 "prompt": row[3],
                 "lyrics": row[4],
                 "audioUrl": f"/api/music/download/{row[5]}",
-                "createdAt": row[6]
+                "durationMs": row[6] if row[6] is not None else 0,
+                "lrc": row[7] or "",
+                "createdAt": row[8]
             })
 
         return jsonify({"success": True, "history": history})
