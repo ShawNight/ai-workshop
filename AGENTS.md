@@ -101,7 +101,8 @@ HOST=0.0.0.0
 
 ## 前端组件归属
 
-- `frontend/src/components/music/*` - 歌词编辑器、音乐播放器、歌词同步显示
+- `frontend/src/components/music/*` - 歌词编辑器、音乐播放器、歌词同步显示、歌词时间戳校准
+- `frontend/src/utils/lrcCalibration.js` - LRC 时间戳校准工具函数（applyLrcOffsets/parseLrcTime/formatTimeToLrc）
 - `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴、概要建议卡片、实体审阅面板
 - `frontend/src/components/novel/tabs/*` - 大纲 Tab（含方向引导弹窗 AppendOutlineModal）、角色 Tab（含批量生成+审阅+内联编辑）、世界观 Tab（含批量生成+审阅+内联编辑+AI生成描述）、设定 Tab、导出 Tab
 - `frontend/src/components/novel/chat/*` - AI 对话面板（character/world/relation 模式）、建议卡片

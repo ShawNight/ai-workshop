@@ -1,136 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '../../lib/utils';
-import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
-
-// 解析 LRC 格式歌词为带时间戳的行
-const LRC_METADATA_RE = /^\[(ti|ar|al|by|offset|length):/i;
-
-const parseLRC = (lrcText) => {
-  if (!lrcText) return null;
-
-  const lines = lrcText.trim().split('\n');
-  const timedLines = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    if (LRC_METADATA_RE.test(trimmed)) continue;
-
-    const match = trimmed.match(/^\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\](.*)/);
-    if (match) {
-      const minutes = parseInt(match[1], 10);
-      const seconds = parseInt(match[2], 10);
-      const ms = match[3] ? parseInt(match[3].padEnd(3, '0'), 10) : 0;
-      const time = minutes * 60 + seconds + ms / 1000;
-      const text = match[4].trim();
-
-      timedLines.push({ time, text: text || '[Instrumental]', section: 'lrc' });
-    }
-  }
-
-  if (timedLines.length === 0) return null;
-
-  for (let i = 0; i < timedLines.length; i++) {
-    const nextTime = i + 1 < timedLines.length ? timedLines[i + 1].time : timedLines[i].time + 3;
-    timedLines[i].duration = nextTime - timedLines[i].time;
-  }
-
-  return timedLines;
-};
-
-// 段落速度权重（相对于基准速度）— 仅估算模式使用
-const SECTION_SPEED_WEIGHT = {
-  verse: 1.0,      // 主歌 - 正常速度
-  chorus: 0.85,    // 副歌 - 通常更快
-  bridge: 1.1,     // 桥段 - 通常较慢
-  prechorus: 0.95, // 预副歌
-  intro: 1.2,      // 前奏 - 较慢
-  outro: 1.2,      // 尾声
-  solo: 1.0,       // 间奏
-  instrumental: 1.0,
-  default: 1.0
-};
-
-// 识别段落标记
-const SECTION_PATTERNS = [
-  { pattern: /\[(verse|主歌|pre-chorus)\]/gi, type: 'verse' },
-  { pattern: /\[(chorus|副歌|高潮)\]/gi, type: 'chorus' },
-  { pattern: /\[(bridge|桥段|过渡)\]/gi, type: 'bridge' },
-  { pattern: /\[(pre[- ]?chorus|预副歌)\]/gi, type: 'prechorus' },
-  { pattern: /\[(intro|前奏)\]/gi, type: 'intro' },
-  { pattern: /\[(outro|尾奏|尾声)\]/gi, type: 'outro' },
-  { pattern: /\[(solo|间奏)\]/gi, type: 'solo' },
-  { pattern: /\[(instrumental|器乐)\]/gi, type: 'instrumental' }
-];
-
-const getSectionType = (line) => {
-  for (const { pattern, type } of SECTION_PATTERNS) {
-    if (pattern.test(line)) return type;
-  }
-  return null;
-};
-
-// 根据字数估算行时长（基础时长：每个字约0.5秒）
-const estimateLineDuration = (text, sectionType) => {
-  const charCount = text.length;
-  const baseDurationPerChar = 0.5; // 每字0.5秒作为基准
-  const weight = SECTION_SPEED_WEIGHT[sectionType] || SECTION_SPEED_WEIGHT.default;
-
-  // 最短2秒，最长根据字数计算
-  const estimatedDuration = Math.max(2, Math.min(8, charCount * baseDurationPerChar * weight));
-  return estimatedDuration;
-};
-
-// 解析歌词为带时间戳的格式，根据总时长动态调整
-const parseLyricsToTimedLines = (lyricsText, totalDuration = 0) => {
-  if (!lyricsText) return [];
-
-  const lines = lyricsText.split('\n');
-  const timedLines = [];
-  let currentSection = 'verse';
-
-  // 先收集所有有效歌词行和它们的预估时长
-  const rawLines = [];
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    const sectionType = getSectionType(line);
-    if (sectionType) {
-      currentSection = sectionType;
-      continue;
-    }
-
-    rawLines.push({
-      text: line,
-      section: currentSection,
-      estimatedDuration: estimateLineDuration(line, currentSection)
-    });
-  }
-
-  if (rawLines.length === 0) return [];
-
-  // 如果有实际总时长，按比例调整每行时长
-  const totalEstimatedDuration = rawLines.reduce((sum, l) => sum + l.estimatedDuration, 0);
-  const scaleFactor = totalDuration > 0 ? totalDuration / totalEstimatedDuration : 1;
-
-  let currentTime = 0;
-  for (const rawLine of rawLines) {
-    const adjustedDuration = rawLine.estimatedDuration * scaleFactor;
-
-    timedLines.push({
-      time: currentTime,
-      duration: adjustedDuration,
-      text: rawLine.text,
-      section: rawLine.section
-    });
-
-    currentTime += adjustedDuration;
-  }
-
-  return timedLines;
-};
+import { Play, Pause, SkipBack, SkipForward, Crosshair, RotateCcw, Plus, Minus } from 'lucide-react';
+import { parseLrcWithOffsets } from '../../utils/lrcCalibration';
 
 // 格式化时间显示
 const formatTime = (seconds) => {
@@ -141,32 +12,35 @@ const formatTime = (seconds) => {
 
 export function LyricsSyncViewer({
   lyrics,
-  lrc,          // LRC 格式歌词，优先使用
+  lrc,
   currentTime = 0,
-  duration = 0,  // 接收实际音频时长
+  duration = 0,
   isPlaying = false,
   onSeek,
-  className
+  className,
+  // 校准模式相关 props
+  isCalibrationMode = false,
+  globalOffset = 0,
+  lrcOffsets = {},
+  onGlobalOffsetChange,
+  onLineOffsetChange,
+  onMarkCurrentTime,
 }) {
   const containerRef = useRef(null);
   const lineRefs = useRef([]);
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
 
-  // 优先解析 LRC，回退到估算模式
+  // 解析歌词（支持偏移叠加）
   const timedLines = useMemo(() => {
     if (lrc) {
-      const parsed = parseLRC(lrc);
-      if (parsed && parsed.length > 0) return parsed;
+      return parseLrcWithOffsets(lrc, globalOffset, lrcOffsets);
     }
-    return parseLyricsToTimedLines(lyrics, duration);
-  }, [lrc, lyrics, duration]);
-
-  const isLRCMode = lrc && parseLRC(lrc);
+    return [];
+  }, [lrc, globalOffset, lrcOffsets]);
 
   // 计算当前行
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!timedLines.length) {
+    if (!timedLines.length || isCalibrationMode) {
       setActiveLineIndex(-1);
       return;
     }
@@ -182,28 +56,25 @@ export function LyricsSyncViewer({
       }
     }
     setActiveLineIndex(idx);
-  }, [currentTime, timedLines]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  }, [currentTime, timedLines, isCalibrationMode]);
 
   // 自动滚动到当前行
   useEffect(() => {
-    if (activeLineIndex >= 0 && lineRefs.current[activeLineIndex] && containerRef.current) {
-      const lineEl = lineRefs.current[activeLineIndex];
-      const containerEl = containerRef.current;
+    if (isCalibrationMode || activeLineIndex < 0 || !lineRefs.current[activeLineIndex] || !containerRef.current) return;
+    const lineEl = lineRefs.current[activeLineIndex];
+    const containerEl = containerRef.current;
+    const lineTop = lineEl.offsetTop;
+    const lineHeight = lineEl.offsetHeight;
+    const containerHeight = containerEl.clientHeight;
+    const scrollTop = containerEl.scrollTop;
 
-      const lineTop = lineEl.offsetTop;
-      const lineHeight = lineEl.offsetHeight;
-      const containerHeight = containerEl.clientHeight;
-      const scrollTop = containerEl.scrollTop;
-
-      if (lineTop < scrollTop + lineHeight * 2 || lineTop > scrollTop + containerHeight - lineHeight * 2) {
-        containerEl.scrollTo({
-          top: lineTop - containerHeight / 2 + lineHeight / 2,
-          behavior: 'smooth'
-        });
-      }
+    if (lineTop < scrollTop + lineHeight * 2 || lineTop > scrollTop + containerHeight - lineHeight * 2) {
+      containerEl.scrollTo({
+        top: lineTop - containerHeight / 2 + lineHeight / 2,
+        behavior: 'smooth'
+      });
     }
-  }, [activeLineIndex]);
+  }, [activeLineIndex, isCalibrationMode]);
 
   // 处理点击跳转到指定行
   const handleLineClick = useCallback((index) => {
@@ -212,11 +83,16 @@ export function LyricsSyncViewer({
     }
   }, [onSeek, timedLines]);
 
-  // 计算总时长（使用实际时长或估算）
+  // 计算总时长
   const totalDuration = duration > 0 ? duration :
     (timedLines.length > 0 ? timedLines[timedLines.length - 1].time + timedLines[timedLines.length - 1].duration : 0);
 
-  if (!lyrics) {
+  // 判断是否某行已校准
+  const isLineCalibrated = (originalIndex) => {
+    return globalOffset !== 0 || (lrcOffsets[originalIndex] || 0) !== 0;
+  };
+
+  if (!lyrics && !lrc) {
     return (
       <div className={cn('flex items-center justify-center h-full', className)}>
         <p className="text-[var(--text-secondary)] text-sm">暂无歌词</p>
@@ -232,12 +108,12 @@ export function LyricsSyncViewer({
           {isPlaying ? (
             <div className="flex items-center gap-1 text-[var(--primary)]">
               <Play className="h-4 w-4" />
-              <span className="text-xs">{isLRCMode ? '同步播放' : '正在播放'}</span>
+              <span className="text-xs">{isCalibrationMode ? '校准模式' : '同步播放'}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 text-[var(--text-secondary)]">
               <Pause className="h-4 w-4" />
-              <span className="text-xs">已暂停</span>
+              <span className="text-xs">{isCalibrationMode ? '校准模式' : '已暂停'}</span>
             </div>
           )}
         </div>
@@ -245,6 +121,41 @@ export function LyricsSyncViewer({
           {formatTime(currentTime)} / {formatTime(totalDuration)}
         </div>
       </div>
+
+      {/* 校准模式：全局偏移控制 */}
+      {isCalibrationMode && (
+        <div className="mb-4 p-3 rounded-xl bg-[var(--elevated)] border border-[var(--border)] space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-[var(--text-primary)]">全局偏移</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--text-secondary)] font-mono">
+                {globalOffset > 0 ? '+' : ''}{globalOffset}ms
+              </span>
+              <button
+                onClick={onGlobalOffsetChange ? () => onGlobalOffsetChange(0) : undefined}
+                className="p-1 rounded-lg hover:bg-[var(--surface)] text-[var(--text-secondary)] transition-colors"
+                title="重置全局偏移"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+          <input
+            type="range"
+            min={-5000}
+            max={5000}
+            step={50}
+            value={globalOffset}
+            onChange={(e) => onGlobalOffsetChange?.(parseInt(e.target.value, 10))}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-[var(--border)] accent-[var(--primary)]"
+          />
+          <div className="flex justify-between text-[10px] text-[var(--text-secondary)]">
+            <span>-5s</span>
+            <span>0</span>
+            <span>+5s</span>
+          </div>
+        </div>
+      )}
 
       {/* 歌词列表 */}
       <div
@@ -256,45 +167,86 @@ export function LyricsSyncViewer({
           {timedLines.map((line, index) => {
             const isActive = index === activeLineIndex;
             const isPast = index < activeLineIndex;
+            const calibrated = isLineCalibrated(line.originalIndex);
 
             return (
               <div
                 key={index}
                 ref={(el) => (lineRefs.current[index] = el)}
-                onClick={() => handleLineClick(index)}
+                onClick={() => !isCalibrationMode && handleLineClick(index)}
                 className={cn(
-                  'relative px-4 py-3 cursor-pointer transition-all duration-300 rounded-lg mx-2',
-                  'hover:bg-[var(--border)]/50',
-                  isActive && 'bg-[var(--primary)]/10',
-                  isPast && 'opacity-50'
+                  'relative px-4 py-3 rounded-xl mx-2 transition-all duration-200',
+                  !isCalibrationMode && 'cursor-pointer hover:bg-[var(--elevated)]',
+                  isActive && !isCalibrationMode && 'bg-[var(--primary)]/10',
+                  isPast && !isCalibrationMode && 'opacity-50',
+                  isCalibrationMode && 'hover:bg-[var(--elevated)]/50'
                 )}
               >
-                {/* 时间指示器 */}
-                <div className={cn(
-                  'absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-full transition-all duration-300',
-                  isActive ? 'h-full bg-[var(--primary)]' : 'h-0'
-                )} />
+                {/* 左侧指示器 */}
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  {calibrated && (
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
+                  )}
+                  {!isCalibrationMode && (
+                    <div className={cn(
+                      'w-1 rounded-full transition-all duration-300',
+                      isActive ? 'h-full bg-[var(--primary)]' : 'h-0'
+                    )} />
+                  )}
+                </div>
 
-                {/* 行号 */}
+                {/* 时间戳 */}
                 <div className={cn(
-                  'absolute left-4 top-1/2 -translate-y-1/2 text-xs font-mono transition-colors',
-                  isActive ? 'text-[var(--primary)]' : 'text-[var(--text-secondary)] opacity-30'
+                  'text-xs font-mono transition-colors',
+                  calibrated ? 'text-emerald-400' : 'text-[var(--text-secondary)] opacity-50'
                 )}>
                   {formatTime(line.time)}
                 </div>
 
                 {/* 歌词文字 */}
-                <div className="pl-16">
+                <div className="pl-0 mt-1">
                   <p
                     className={cn(
                       'text-base leading-relaxed transition-all duration-300',
-                      isActive && 'text-[var(--primary)] font-medium text-lg',
-                      isPast && 'text-[var(--text-secondary)]'
+                      isActive && !isCalibrationMode && 'text-[var(--primary)] font-medium text-lg',
+                      isPast && !isCalibrationMode && 'text-[var(--text-secondary)]',
+                      isCalibrationMode && 'text-[var(--text-primary)]'
                     )}
                   >
                     {line.text}
                   </p>
                 </div>
+
+                {/* 校准模式：操作按钮 */}
+                {isCalibrationMode && (
+                  <div className="flex items-center gap-1 mt-2">
+                    <button
+                      onClick={() => onMarkCurrentTime?.(line.originalIndex)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors"
+                      title="将当前播放时间设为该行时间戳"
+                    >
+                      <Crosshair className="h-3 w-3" />
+                      标记当前时间
+                    </button>
+                    <button
+                      onClick={() => onLineOffsetChange?.(line.originalIndex, (lrcOffsets[line.originalIndex] || 0) - 50)}
+                      className="p-1 rounded-lg hover:bg-[var(--surface)] text-[var(--text-secondary)] transition-colors"
+                      title="提前 50ms"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+                    <span className="text-[10px] text-[var(--text-secondary)] font-mono w-12 text-center">
+                      {(lrcOffsets[line.originalIndex] || 0) > 0 ? '+' : ''}{lrcOffsets[line.originalIndex] || 0}ms
+                    </span>
+                    <button
+                      onClick={() => onLineOffsetChange?.(line.originalIndex, (lrcOffsets[line.originalIndex] || 0) + 50)}
+                      className="p-1 rounded-lg hover:bg-[var(--surface)] text-[var(--text-secondary)] transition-colors"
+                      title="延后 50ms"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -304,8 +256,8 @@ export function LyricsSyncViewer({
         <div className="h-32" />
       </div>
 
-      {/* 快捷跳转按钮 */}
-      {activeLineIndex >= 0 && (
+      {/* 快捷跳转按钮（仅在非校准模式下显示） */}
+      {!isCalibrationMode && activeLineIndex >= 0 && (
         <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-[var(--border)]">
           <button
             onClick={() => handleLineClick(Math.max(0, activeLineIndex - 1))}
@@ -313,7 +265,7 @@ export function LyricsSyncViewer({
             className={cn(
               'p-2 rounded-full transition-colors',
               activeLineIndex > 0
-                ? 'hover:bg-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                ? 'hover:bg-[var(--elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 : 'text-[var(--border)] cursor-not-allowed'
             )}
           >
@@ -325,7 +277,7 @@ export function LyricsSyncViewer({
             className={cn(
               'p-2 rounded-full transition-colors',
               activeLineIndex < timedLines.length - 1
-                ? 'hover:bg-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                ? 'hover:bg-[var(--elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 : 'text-[var(--border)] cursor-not-allowed'
             )}
           >

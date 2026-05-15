@@ -23,6 +23,10 @@ export const useMusicStore = create(
       audioLrc: '',
       jobId: null,
 
+      // 歌词时间戳校准
+      globalLrcOffset: 0,
+      lrcOffsets: {},
+
       // 已完成的音乐历史记录
       musicHistory: [],
 
@@ -39,10 +43,21 @@ export const useMusicStore = create(
       setAudioLrc: (l) => set({ audioLrc: l }),
       setJobId: (id) => set({ jobId: id }),
 
+      // ============ 歌词校准管理 ============
+      setGlobalLrcOffset: (offset) => set({ globalLrcOffset: offset }),
+      setLrcOffset: (lineIndex, offset) => set((state) => ({
+        lrcOffsets: { ...state.lrcOffsets, [lineIndex]: offset }
+      })),
+      resetLrcOffsets: () => set({ globalLrcOffset: 0, lrcOffsets: {} }),
+
       // ============ 音乐历史记录管理 ============
 
       addMusicToHistory: (music) => set((state) => ({
-        musicHistory: [music, ...state.musicHistory].slice(0, 50)
+        musicHistory: [{
+          ...music,
+          globalLrcOffset: state.globalLrcOffset,
+          lrcOffsets: state.lrcOffsets
+        }, ...state.musicHistory].slice(0, 50)
       })),
 
       /**
@@ -60,6 +75,8 @@ export const useMusicStore = create(
             audioUrl: music.audioUrl,
             audioDuration: (music.durationMs || 0) / 1000,
             audioLrc: music.lrc || '',
+            globalLrcOffset: music.globalLrcOffset || 0,
+            lrcOffsets: music.lrcOffsets || {},
             generationStatus: 'completed'
           });
         }
@@ -85,7 +102,9 @@ export const useMusicStore = create(
         audioUrl: null,
         audioDuration: 0,
         audioLrc: '',
-        jobId: null
+        jobId: null,
+        globalLrcOffset: 0,
+        lrcOffsets: {}
       }),
 
       /**

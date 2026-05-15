@@ -3,12 +3,12 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card'
 import { Button } from '../components/ui/Button';
 import { Input, Textarea, Label } from '../components/ui/Input';
 import { Progress } from '../components/ui/Progress';
-import { Modal } from '../components/ui/Modal';
 import { musicApi } from '../api';
 import { toast } from '../components/ui/Toast';
 import { useMusicStore } from '../store/musicStore';
 import { cn } from '../lib/utils';
-import { Music, Sparkles, RefreshCw, Play, Pause, Download, History, Trash2, FileMusic, X, Volume2, Wand2, Edit3 } from 'lucide-react';
+import { applyLrcOffsets } from '../utils/lrcCalibration';
+import { Music, Sparkles, RefreshCw, Play, Pause, Download, History, Trash2, FileMusic, X, Volume2, Wand2, Edit3, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { LyricsEditor } from '../components/music/LyricsEditor';
 import { LyricsSyncViewer } from '../components/music/LyricsSyncViewer';
 
@@ -24,6 +24,8 @@ export function MusicPage() {
     musicHistory,
     audioDuration,
     audioLrc,
+    globalLrcOffset,
+    lrcOffsets,
     setUserDescription,
     setPrompt,
     setLyrics,
@@ -34,6 +36,9 @@ export function MusicPage() {
     setAudioDuration,
     setAudioLrc,
     setJobId,
+    setGlobalLrcOffset,
+    setLrcOffset,
+    resetLrcOffsets,
     addMusicToHistory,
     loadFromHistory,
     deleteFromHistory,
@@ -446,6 +451,11 @@ export function MusicPage() {
           title={songTitle}
           lrc={audioLrc}
           audioDuration={audioDuration}
+          globalLrcOffset={globalLrcOffset}
+          lrcOffsets={lrcOffsets}
+          onGlobalOffsetChange={setGlobalLrcOffset}
+          onLineOffsetChange={setLrcOffset}
+          onResetOffsets={resetLrcOffsets}
           onClose={() => setShowPlayer(false)}
         />
       )}
@@ -454,10 +464,23 @@ export function MusicPage() {
 }
 
 // 音乐播放弹框组件
-function MusicPlayerModal({ audioUrl, lyrics, title, lrc, audioDuration, onClose }) {
+function MusicPlayerModal({
+  audioUrl,
+  lyrics,
+  title,
+  lrc,
+  audioDuration,
+  globalLrcOffset,
+  lrcOffsets,
+  onGlobalOffsetChange,
+  onLineOffsetChange,
+  onResetOffsets,
+  onClose
+}) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [browserDuration, setBrowserDuration] = useState(0);
+  const [isCalibrationMode, setIsCalibrationMode] = useState(false);
   const audioRef = useRef(null);
   const rafRef = useRef(null);
 
@@ -529,6 +552,42 @@ function MusicPlayerModal({ audioUrl, lyrics, title, lrc, audioDuration, onClose
     handleSeek(percent * duration);
   };
 
+  const handleMarkCurrentTime = (lineIndex) => {
+    // 计算需要的偏移量：当前播放时间 - 原始时间戳
+    if (!lrc) return;
+    const lines = lrc.trim().split('\n');
+    const line = lines[lineIndex];
+    if (!line) return;
+
+    const match = line.match(/^\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\]/);
+    if (!match) return;
+
+    const mins = parseInt(match[1], 10);
+    const secs = parseInt(match[2], 10);
+    const ms = match[3] ? parseInt(match[3].padEnd(3, '0'), 10) : 0;
+    const originalTime = mins * 60 + secs + ms / 1000;
+
+    // 计算该行需要的总偏移量（减去全局偏移）
+    const neededOffset = Math.round((currentTime - originalTime) * 1000);
+    const lineOffset = neededOffset - globalLrcOffset;
+
+    onLineOffsetChange(lineIndex, lineOffset);
+  };
+
+  const handleExport = () => {
+    const calibratedLrc = applyLrcOffsets(lrc, globalLrcOffset, lrcOffsets);
+    const blob = new Blob([calibratedLrc], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title || 'song'}_calibrated.lrc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('已导出校准后的 LRC 文件');
+  };
+
   const formatTime = (seconds) => {
     if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
@@ -550,9 +609,25 @@ function MusicPlayerModal({ audioUrl, lyrics, title, lrc, audioDuration, onClose
               <p className="text-xs text-[var(--text-secondary)]">{formatTime(currentTime)} / {formatTime(duration)}</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {lrc && (
+              <button
+                onClick={() => setIsCalibrationMode(!isCalibrationMode)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                  isCalibrationMode
+                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--elevated)]'
+                )}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {isCalibrationMode ? '退出校准' : '校准时间'}
+              </button>
+            )}
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-[200px]">
@@ -564,6 +639,12 @@ function MusicPlayerModal({ audioUrl, lyrics, title, lrc, audioDuration, onClose
               duration={duration}
               isPlaying={isPlaying}
               onSeek={handleSeek}
+              isCalibrationMode={isCalibrationMode}
+              globalOffset={globalLrcOffset}
+              lrcOffsets={lrcOffsets}
+              onGlobalOffsetChange={onGlobalOffsetChange}
+              onLineOffsetChange={onLineOffsetChange}
+              onMarkCurrentTime={handleMarkCurrentTime}
             />
           )}
         </div>
@@ -594,10 +675,17 @@ function MusicPlayerModal({ audioUrl, lyrics, title, lrc, audioDuration, onClose
               )}
             </button>
 
-            <Button variant="outline" size="sm" onClick={() => window.open(audioUrl, '_blank')}>
-              <Download className="h-4 w-4" />
-              下载
-            </Button>
+            {isCalibrationMode ? (
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="h-4 w-4" />
+                导出校准 LRC
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => window.open(audioUrl, '_blank')}>
+                <Download className="h-4 w-4" />
+                下载
+              </Button>
+            )}
           </div>
         </div>
 

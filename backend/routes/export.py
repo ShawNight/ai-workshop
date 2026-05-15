@@ -61,6 +61,7 @@ def export_for_netease():
     data = request.get_json()
     music_file_path = data.get("musicFilePath")
     lyrics = data.get("lyrics")
+    lrc = data.get("lrc")  # 新增：接收前端校准后的 LRC
     title = data.get("title", "AI创作歌曲")
     artist = data.get("artist", "AI Artist")
 
@@ -71,7 +72,11 @@ def export_for_netease():
     song_artist = artist or "AI Artist"
     uploads_dir = os.path.join(os.path.dirname(__file__), "..", "uploads")
 
-    lrc_content = parse_lyrics_to_lrc(lyrics, song_title, song_artist)
+    # 优先使用前端传入的校准后 LRC，否则回退到自动生成
+    if lrc:
+        lrc_content = lrc
+    else:
+        lrc_content = parse_lyrics_to_lrc(lyrics, song_title, song_artist)
 
     music_file_name = (
         os.path.basename(music_file_path) if music_file_path else "music.mp3"
