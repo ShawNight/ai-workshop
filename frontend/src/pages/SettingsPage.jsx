@@ -21,7 +21,7 @@ function ProviderCard({ provider, onEdit, onDelete, onTest, testing, testResult 
       : 'bg-gray-300 dark:bg-gray-600';
 
   return (
-    <div className="rounded-xl border border-[var(--border)] overflow-hidden hover:shadow-md transition-shadow duration-200 bg-[var(--surface)]">
+    <div className="rounded-2xl border border-[var(--border)] overflow-hidden hover:shadow-[var(--shadow-hover)] hover:-translate-y-0.5 transition-all duration-300 bg-[var(--surface)]">
       <div className={`h-[3px] ${statusColor}`} />
       <div className="p-5">
         {/* Header */}
@@ -166,13 +166,13 @@ export function SettingsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-8">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)]">设置</h2>
+        <h2 className="text-2xl font-bold text-[var(--text-primary)]">设置</h2>
         <p className="text-sm text-[var(--text-secondary)] mt-1">管理 AI 服务提供商配置</p>
       </div>
 
       {/* Active provider selection */}
       {providers.length > 0 && (
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-[var(--shadow-card)]">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">当前服务</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -243,7 +243,7 @@ export function SettingsPage() {
               />
             ))}
             {providers.length === 0 && (
-              <div className="py-16 text-center rounded-xl border border-dashed border-[var(--border)]">
+              <div className="py-16 text-center rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)]/50">
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[var(--border)]/50 mb-4">
                   <Server className="h-6 w-6 text-[var(--text-secondary)]/40" />
                 </div>

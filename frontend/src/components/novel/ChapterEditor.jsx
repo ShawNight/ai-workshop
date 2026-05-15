@@ -177,25 +177,25 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--background)]">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur-md shadow-sm">
         <div className="flex items-center gap-1">
           <button
             onClick={() => editor.chain().focus().toggleBold().run()}
-            className={`p-1.5 rounded hover:bg-[var(--surface)] ${editor.isActive('bold') ? 'bg-[var(--surface)] text-[var(--primary)]' : ''}`}
+            className={`p-2 rounded-lg hover:bg-[var(--elevated)] transition-all duration-200 ${editor.isActive('bold') ? 'bg-[var(--elevated)] text-[var(--primary)]' : 'text-[var(--text-secondary)]'}`}
             title="加粗"
           >
             <Bold className="h-4 w-4" />
           </button>
           <button
             onClick={() => editor.chain().focus().toggleItalic().run()}
-            className={`p-1.5 rounded hover:bg-[var(--surface)] ${editor.isActive('italic') ? 'bg-[var(--surface)] text-[var(--primary)]' : ''}`}
+            className={`p-2 rounded-lg hover:bg-[var(--elevated)] transition-all duration-200 ${editor.isActive('italic') ? 'bg-[var(--elevated)] text-[var(--primary)]' : 'text-[var(--text-secondary)]'}`}
             title="斜体"
           >
             <Italic className="h-4 w-4" />
           </button>
           <button
             onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-            className={`p-1.5 rounded hover:bg-[var(--surface)] ${editor.isActive('heading') ? 'bg-[var(--surface)] text-[var(--primary)]' : ''}`}
+            className={`p-2 rounded-lg hover:bg-[var(--elevated)] transition-all duration-200 ${editor.isActive('heading') ? 'bg-[var(--elevated)] text-[var(--primary)]' : 'text-[var(--text-secondary)]'}`}
             title="标题"
           >
             <Heading className="h-4 w-4" />
@@ -203,14 +203,14 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
           <span className="w-px h-5 bg-[var(--border)] mx-1" />
           <button
             onClick={() => editor.chain().focus().undo().run()}
-            className="p-1.5 rounded hover:bg-[var(--surface)]"
+            className="p-2 rounded-lg hover:bg-[var(--elevated)] text-[var(--text-secondary)] transition-all duration-200"
             title="撤销"
           >
             <Undo className="h-4 w-4" />
           </button>
           <button
             onClick={() => editor.chain().focus().redo().run()}
-            className="p-1.5 rounded hover:bg-[var(--surface)]"
+            className="p-2 rounded-lg hover:bg-[var(--elevated)] text-[var(--text-secondary)] transition-all duration-200"
             title="重做"
           >
             <Redo className="h-4 w-4" />
@@ -218,7 +218,7 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
           <span className="w-px h-5 bg-[var(--border)] mx-1" />
           <button
             onClick={handleReformat}
-            className="p-1.5 rounded hover:bg-[var(--surface)]"
+            className="p-2 rounded-lg hover:bg-[var(--elevated)] text-[var(--text-secondary)] transition-all duration-200"
             title="重新排版"
           >
             <AlignJustify className="h-4 w-4" />
@@ -226,7 +226,7 @@ export function ChapterEditor({ chapter, onContentChange, onGenerate, onContinue
         </div>
 
         <div className="flex items-center gap-1">
-          <span className="text-xs text-[var(--text-secondary)]">
+          <span className="text-xs text-[var(--text-secondary)] font-medium bg-[var(--elevated)] px-2 py-1 rounded-lg">
             {wordCount.toLocaleString()} 字
           </span>
 

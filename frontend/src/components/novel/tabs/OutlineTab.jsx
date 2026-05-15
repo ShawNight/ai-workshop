@@ -1,13 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, ChevronRight, ChevronDown, ChevronUp, Maximize2, Trash2 } from 'lucide-react';
+import { Sparkles, ChevronRight, ChevronDown, ChevronUp, Maximize2, Trash2, GripVertical } from 'lucide-react';
 import { Button } from '../../ui/Button';
+import { EmptyState } from '../../ui/EmptyState';
 import { toast } from '../../ui/Toast';
 import { novelApi } from '../../../api';
 import { useNovelStore } from '../../../store/novelStore';
 import { AppendOutlineModal } from '../AppendOutlineModal';
 import { generateId } from '../../../utils/formatContent';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
+import { motion } from 'framer-motion';
+import { cn } from '../../../lib/utils';
 
 function appendOutlineToChapters(existingChapters, newOutline, startIndex) {
   const newChapters = newOutline.map((item, i) => ({
@@ -153,9 +156,15 @@ export function OutlineTab() {
     setExpanded((prev) => ({ ...prev, [chapterId]: !prev[chapterId] }));
   };
 
+  const getStatusDot = (wordCount) => {
+    if (wordCount > 500) return 'bg-emerald-400';
+    if (wordCount > 0) return 'bg-amber-400';
+    return 'bg-[var(--border)]';
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold">章节大纲</h2>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
@@ -169,7 +178,7 @@ export function OutlineTab() {
                 const v = parseInt(e.target.value, 10);
                 if (!isNaN(v) && v >= 1) setChapterCount(v);
               }}
-              className="w-14 h-7 text-sm text-center border border-[var(--border)] rounded-md bg-[var(--surface)] focus:outline-none focus:border-[var(--primary)]/50"
+              className="w-14 h-8 text-sm text-center border border-[var(--border)] rounded-lg bg-[var(--surface)] focus:outline-none focus:border-[var(--primary)]/50"
             />
           </div>
           <Button
@@ -186,27 +195,38 @@ export function OutlineTab() {
       </div>
 
       {chapters.length > 0 ? (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {chapters.map((chapter, idx) => {
             const isExpanded = expanded[chapter.id];
             const wordCount = (chapter.content || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').length;
             const hasDescription = !!(chapter.description || '').trim();
-            const descriptionPlaceholder = hasDescription ? '添加写作指导...' : '暂无章节简介，点击添加...';
             const isEditingTitle = editingTitleId === chapter.id;
 
             return (
-              <div
+              <motion.div
                 key={chapter.id}
-                className="rounded-lg border border-[var(--border)] hover:border-[var(--primary)]/30 transition-colors"
+                layout
+                className={cn(
+                  'rounded-xl bg-[var(--elevated)] border border-[var(--border)] transition-all duration-200 group',
+                  'hover:border-[var(--primary)]/20 hover:shadow-md'
+                )}
               >
                 <div
-                  className="flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+                  className="flex items-center gap-3 px-4 py-3 cursor-pointer"
                   onClick={() => toggleExpand(chapter.id)}
                 >
-                  <button className="p-0.5 flex-shrink-0" onClick={(e) => { e.stopPropagation(); toggleExpand(chapter.id); }}>
-                    {isExpanded ? <ChevronDown className="h-4 w-4 text-[var(--text-secondary)]" /> : <ChevronRight className="h-4 w-4 text-[var(--text-secondary)]" />}
+                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getStatusDot(wordCount)}`} />
+                  <button
+                    className="p-0.5 flex-shrink-0"
+                    onClick={(e) => { e.stopPropagation(); toggleExpand(chapter.id); }}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="h-4 w-4 text-[var(--text-secondary)]" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-[var(--text-secondary)]" />
+                    )}
                   </button>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-500/10 text-blue-500 flex-shrink-0">
+                  <span className="text-[10px] px-2 py-0.5 rounded-md font-medium bg-[var(--primary)]/10 text-[var(--primary)] flex-shrink-0">
                     {idx + 1}
                   </span>
                   {isEditingTitle ? (
@@ -217,7 +237,7 @@ export function OutlineTab() {
                       onBlur={() => handleTitleConfirm(chapter.id)}
                       onKeyDown={(e) => handleTitleKeyDown(e, chapter.id)}
                       onClick={(e) => e.stopPropagation()}
-                      className="flex-1 text-sm font-medium bg-[var(--surface)] border border-[var(--primary)]/50 rounded px-1.5 py-0.5 focus:outline-none"
+                      className="flex-1 text-sm font-medium bg-[var(--surface)] border border-[var(--primary)]/50 rounded-lg px-2 py-1 focus:outline-none"
                     />
                   ) : (
                     <span
@@ -233,33 +253,31 @@ export function OutlineTab() {
                       {wordCount} 字
                     </span>
                   )}
-                  <div className="flex items-center gap-0.5 flex-shrink-0" style={{ opacity: 1 }}>
+                  <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleMoveChapter(chapter.id, 'up'); }}
-                      className="p-1 rounded hover:bg-[var(--surface)] text-[var(--text-secondary)]"
+                      className="p-1.5 rounded-lg hover:bg-[var(--surface)] text-[var(--text-secondary)]"
                       disabled={idx === 0}
-                      title="上移"
                     >
                       <ChevronUp className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleMoveChapter(chapter.id, 'down'); }}
-                      className="p-1 rounded hover:bg-[var(--surface)] text-[var(--text-secondary)]"
+                      className="p-1.5 rounded-lg hover:bg-[var(--surface)] text-[var(--text-secondary)]"
                       disabled={idx === chapters.length - 1}
-                      title="下移"
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); navigate(`/novel/${currentProject.id}/write/${chapter.id}`); }}
-                      className="p-1 rounded hover:bg-[var(--surface)] text-[var(--text-secondary)]"
+                      className="p-1.5 rounded-lg hover:bg-[var(--surface)] text-[var(--text-secondary)]"
                       title="全屏写作"
                     >
                       <Maximize2 className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeleteTarget(chapter.id); }}
-                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+                      className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400"
                       title="删除"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -267,26 +285,32 @@ export function OutlineTab() {
                   </div>
                 </div>
                 {isExpanded && (
-                  <div className="px-3 pb-2.5 ml-6">
+                  <div className="px-4 pb-3 ml-8">
                     <textarea
                       value={chapter.description || ''}
                       onChange={(e) => handleUpdateChapter(chapter.id, { description: e.target.value })}
-                      className="w-full text-sm text-[var(--text-secondary)] bg-transparent border border-[var(--border)] rounded-md p-2 resize-none focus:outline-none focus:border-[var(--primary)]/50"
+                      className="w-full text-sm text-[var(--text-secondary)] bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 resize-none focus:outline-none focus:border-[var(--primary)]/50 transition-colors"
                       rows={2}
-                      placeholder={descriptionPlaceholder}
+                      placeholder={hasDescription ? '添加写作指导...' : '暂无章节简介，点击添加...'}
                     />
                   </div>
                 )}
-              </div>
+              </motion.div>
             );
           })}
         </div>
       ) : (
-        <div className="text-center py-8 border-2 border-dashed border-[var(--border)] rounded-xl">
-          <Sparkles className="h-8 w-8 mx-auto mb-2 text-[var(--text-secondary)] opacity-50" />
-          <p className="text-sm text-[var(--text-secondary)]">点击「AI 生成大纲」自动生成故事结构</p>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">可设置方向和章节数目，生成后双击标题可编辑</p>
-        </div>
+        <EmptyState
+          icon={Sparkles}
+          title="还没有章节大纲"
+          description="点击「AI 生成大纲」自动生成故事结构，可设置方向和章节数目，生成后双击标题可编辑"
+          action={
+            <Button onClick={() => setShowOutlineModal(true)} variant="secondary">
+              <Sparkles className="h-4 w-4" />
+              AI 生成大纲
+            </Button>
+          }
+        />
       )}
 
       <AppendOutlineModal

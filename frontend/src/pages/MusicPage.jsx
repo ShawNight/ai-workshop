@@ -203,7 +203,7 @@ export function MusicPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Music className="h-6 w-6 text-[var(--primary)]" />
+            <Music className="h-6 w-6 text-cyan-400" />
             AI 音乐创作
           </h1>
           <p className="text-[var(--text-secondary)] text-sm mt-1">输入描述 → AI生成提示词 → 创作歌词 → 生成音乐</p>
@@ -235,10 +235,10 @@ export function MusicPage() {
       {/* 主内容区域 */}
       <div className="flex-1 flex gap-4 min-h-0">
         {/* 左侧：创作流程 */}
-        <Card className="w-80 flex-shrink-0 flex flex-col">
+        <Card className="w-80 flex-shrink-0 flex flex-col border border-[var(--border)]">
           <CardHeader className="flex-shrink-0">
             <CardTitle className="flex items-center gap-2">
-              <Wand2 className="h-5 w-5 text-[var(--primary)]" />
+              <Wand2 className="h-5 w-5 text-cyan-400" />
               创作流程
             </CardTitle>
           </CardHeader>
@@ -353,7 +353,7 @@ export function MusicPage() {
         </Card>
 
         {/* 右侧：歌词编辑 */}
-        <Card className="flex-1 min-w-0 flex flex-col">
+        <Card className="flex-1 min-w-0 flex flex-col border border-[var(--border)]">
           <CardHeader className="flex-shrink-0">
             <CardTitle className="flex items-center gap-2">
               歌词内容
@@ -372,11 +372,13 @@ export function MusicPage() {
                 className="h-full"
               />
             ) : (
-              <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
+              <div className="h-full flex items-center justify-center">
                 <div className="text-center">
-                  <Music className="h-12 w-12 mx-auto mb-4 opacity-30" />
-                  <p>请先完成左侧创作流程</p>
-                  <p className="text-sm mt-2">输入描述 → 生成提示词 → 生成歌词</p>
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center mx-auto mb-4">
+                    <Music className="h-8 w-8 text-cyan-400/60" />
+                  </div>
+                  <p className="text-[var(--text-secondary)] font-medium">请先完成左侧创作流程</p>
+                  <p className="text-sm text-[var(--text-secondary)]/70 mt-2">输入描述 → 生成提示词 → 生成歌词</p>
                 </div>
               </div>
             )}
@@ -386,26 +388,27 @@ export function MusicPage() {
 
       {/* 历史记录弹框 */}
       {showHistory && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowHistory(false)}>
-          <Card className="w-full max-w-2xl max-h-[80vh] m-4" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <FileMusic className="h-5 w-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowHistory(false)} />
+          <div className="relative z-50 w-full max-w-2xl max-h-[80vh] m-4 rounded-xl bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <FileMusic className="h-5 w-5 text-cyan-400" />
                 已完成的音乐 ({musicHistory.length})
-              </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => setShowHistory(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-            <CardContent>
+              </h2>
+              <button onClick={() => setShowHistory(false)} className="p-1.5 rounded-lg hover:bg-[var(--elevated)] text-[var(--text-secondary)] transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1">
               {musicHistory.length === 0 ? (
                 <p className="text-[var(--text-secondary)] text-center py-8">暂无历史记录</p>
               ) : (
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                <div className="space-y-2">
                   {musicHistory.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                      className="flex items-center justify-between p-3 rounded-xl bg-[var(--elevated)] border border-[var(--border)] hover:border-cyan-500/20 hover:shadow-md transition-all duration-200"
                     >
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{item.title}</p>
@@ -421,7 +424,7 @@ export function MusicPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteHistory(item.id)}
-                          className="text-red-500 hover:text-red-600"
+                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -430,8 +433,8 @@ export function MusicPage() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       )}
 

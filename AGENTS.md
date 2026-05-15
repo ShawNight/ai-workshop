@@ -105,7 +105,7 @@ HOST=0.0.0.0
 - `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴、概要建议卡片、实体审阅面板
 - `frontend/src/components/novel/tabs/*` - 大纲 Tab（含方向引导弹窗 AppendOutlineModal）、角色 Tab（含批量生成+审阅+内联编辑）、世界观 Tab（含批量生成+审阅+内联编辑+AI生成描述）、设定 Tab、导出 Tab
 - `frontend/src/components/novel/chat/*` - AI 对话面板（character/world/relation 模式）、建议卡片
-- `frontend/src/components/ui/*` - shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress)
+- `frontend/src/components/ui/*` - shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress/EmptyState/Skeleton)
 
 ## 前端路由
 
@@ -144,8 +144,18 @@ HOST=0.0.0.0
 - 策略性截断避免过度锚定，保持创意发散性
 
 ### EditorSidebar 引导
+- 侧边栏支持折叠为图标面板（`w-16`）或展开为文字面板（`w-56`）
+- 当前激活 Tab 左侧显示 3px 彩色指示条
 - 当项目无角色、无地点、无章节时，侧边栏底部显示"创作建议"提示卡片
-- Tab 标签旁显示角色和地点数量
+- Tab 标签旁显示角色和地点数量微标
+
+### 主题与设计系统
+- **默认主题**: 深色模式（`theme: 'dark'`），通过 `.light` class 切换浅色模式
+- **CSS 变量层级**: `background` → `surface` → `elevated`，通过背景色差异替代硬边框划分层级
+- **圆角规范**: `radius-sm: 8px` / `radius-md: 12px` / `radius-lg: 16px`
+- **阴影规范**: `--shadow-card` / `--shadow-hover` / `--shadow-modal` 三级弥散阴影
+- **动效规范**: 所有交互组件使用 `transition-all duration-200 ease-out`，Button hover 增加 `scale-[1.02]`
+- **模块色标**: 音乐模块使用青蓝色系，小说模块使用紫罗兰色系
 
 ## 编码规范
 

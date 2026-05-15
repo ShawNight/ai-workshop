@@ -1,6 +1,7 @@
-import { Trash2, Edit3, BookOpen, Bookmark } from 'lucide-react';
+import { Trash2, Edit3, Bookmark, Clock } from 'lucide-react';
 import { Card, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
+import { cn } from '../../lib/utils';
 
 export function ProjectCard({ project, onSelect, onDelete }) {
   const chapters = project.chapters || [];
@@ -8,25 +9,26 @@ export function ProjectCard({ project, onSelect, onDelete }) {
   const wordCount = project.currentWordCount || 0;
   const targetWords = project.targetWordCount || 0;
   const progress = targetWords > 0 ? Math.min(100, Math.round((wordCount / targetWords) * 100)) : 0;
+  const lastUpdated = project.updatedAt || project.createdAt;
 
   return (
-    <Card className="hover:shadow-lg transition-shadow cursor-pointer group h-full">
-      <CardContent className="flex flex-col h-full">
-        <div className="flex items-start gap-3 mb-3">
+    <Card className="hover:shadow-[var(--shadow-hover)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer group h-full border border-[var(--border)]">
+      <CardContent className="flex flex-col h-full p-5">
+        <div className="flex items-start gap-3 mb-4">
           <div
-            className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center"
+            className="w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center shadow-md"
             style={{ backgroundColor: project.coverColor || '#6366F1' }}
           >
-            <Bookmark className="h-5 w-5 text-white" />
+            <Bookmark className="h-6 w-6 text-white" />
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-sm group-hover:text-[var(--primary)] transition-colors truncate">
               {project.title}
             </h3>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex items-center gap-2 mt-1">
               <span className="text-xs text-[var(--text-secondary)]">{project.genre}</span>
               {project.status && project.status !== 'planning' && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--primary)]/10 text-[var(--primary)]">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] font-medium">
                   {statusLabel(project.status)}
                 </span>
               )}
@@ -34,36 +36,42 @@ export function ProjectCard({ project, onSelect, onDelete }) {
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(project.id); }}
-            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+            className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
           >
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
 
-        <p className="text-xs text-[var(--text-secondary)] line-clamp-2 mb-3 flex-1">
+        <p className="text-xs text-[var(--text-secondary)] line-clamp-2 mb-4 flex-1">
           {project.synopsis || project.premise || '暂无简介'}
         </p>
 
         {targetWords > 0 && (
-          <div className="mb-3">
-            <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1">
+          <div className="mb-4">
+            <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1.5">
               <span>{wordCount.toLocaleString()} 字</span>
-              <span>{targetWords.toLocaleString()} 字</span>
+              <span>{progress}%</span>
             </div>
-            <div className="w-full h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-[var(--border)] rounded-full overflow-hidden">
               <div
-                className="h-full bg-[var(--primary)] rounded-full transition-all"
+                className="h-full bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)] rounded-full transition-all duration-500"
                 style={{ width: `${progress}%` }}
               />
             </div>
           </div>
         )}
 
-        <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
-          <span className="text-xs text-[var(--text-secondary)]">
-            {chapters.length} 章 · {characters.length} 角色
-            {wordCount > 0 && !targetWords && ` · ${wordCount.toLocaleString()} 字`}
-          </span>
+        <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
+          <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)]">
+            <span>{chapters.length} 章</span>
+            <span>{characters.length} 角色</span>
+            {lastUpdated && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {new Date(lastUpdated).toLocaleDateString('zh-CN')}
+              </span>
+            )}
+          </div>
           <Button size="sm" variant="ghost" onClick={() => onSelect(project)}>
             <Edit3 className="h-3.5 w-3.5 mr-1" />
             编辑

@@ -4,15 +4,29 @@ import { persist } from 'zustand/middleware';
 export const useThemeStore = create(
   persist(
     (set, get) => ({
-      theme: 'light',
+      theme: 'dark',
       toggleTheme: () => {
         const newTheme = get().theme === 'light' ? 'dark' : 'light';
         set({ theme: newTheme });
-        document.documentElement.classList.toggle('dark', newTheme === 'dark');
+        const html = document.documentElement;
+        if (newTheme === 'dark') {
+          html.classList.remove('light');
+          html.classList.add('dark');
+        } else {
+          html.classList.remove('dark');
+          html.classList.add('light');
+        }
       },
       setTheme: (theme) => {
         set({ theme });
-        document.documentElement.classList.toggle('dark', theme === 'dark');
+        const html = document.documentElement;
+        if (theme === 'dark') {
+          html.classList.remove('light');
+          html.classList.add('dark');
+        } else {
+          html.classList.remove('dark');
+          html.classList.add('light');
+        }
       }
     }),
     {

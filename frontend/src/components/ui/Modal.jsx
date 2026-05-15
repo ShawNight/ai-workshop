@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import { X } from 'lucide-react';
 
@@ -17,30 +18,41 @@ export function Modal({ isOpen, onClose, title, children, className }) {
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div className={cn(
-        'relative z-50 w-full max-w-lg rounded-lg bg-[var(--surface)] p-6 shadow-lg',
-        'animate-in fade-in-0 zoom-in-95 duration-200',
-        className
-      )}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={onClose}
-            className="rounded-md p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className={cn(
+              'relative z-50 w-full max-w-lg rounded-xl bg-[var(--surface)] p-6 shadow-[var(--shadow-modal)]',
+              className
+            )}
           >
-            <X className="h-5 w-5" />
-          </button>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">{title}</h2>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-1.5 hover:bg-[var(--elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {children}
+          </motion.div>
         </div>
-        {children}
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 }

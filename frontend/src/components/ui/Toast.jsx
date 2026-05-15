@@ -1,11 +1,12 @@
 import { create } from 'zustand';
+import { motion, AnimatePresence } from 'framer-motion';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const toastStore = create((set) => ({
   toasts: [],
   addToast: (toast) => {
-    const id = Date.now();
+    const id = Date.now() + Math.random();
     set((state) => ({
       toasts: [...state.toasts, { ...toast, id }]
     }));
@@ -28,10 +29,10 @@ const icons = {
 };
 
 const colors = {
-  success: 'bg-green-600',
-  error: 'bg-red-600',
-  warning: 'bg-yellow-600',
-  info: 'bg-blue-600'
+  success: 'bg-emerald-500/90 backdrop-blur-sm border-emerald-400/30',
+  error: 'bg-red-500/90 backdrop-blur-sm border-red-400/30',
+  warning: 'bg-amber-500/90 backdrop-blur-sm border-amber-400/30',
+  info: 'bg-[var(--primary)]/90 backdrop-blur-sm border-[var(--primary)]/30'
 };
 
 export function ToastContainer() {
@@ -39,28 +40,33 @@ export function ToastContainer() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((toast) => {
-        const Icon = icons[toast.type] || Info;
-        return (
-          <div
-            key={toast.id}
-            className={cn(
-              'flex items-center gap-3 rounded-lg px-4 py-3 text-white shadow-lg',
-              'transition-all duration-300 ease-out',
-              colors[toast.type] || colors.info
-            )}
-          >
-            <Icon className="h-5 w-5" />
-            <span className="text-sm">{toast.message}</span>
-            <button
-              onClick={() => removeToast(toast.id)}
-              className="ml-2 rounded-md p-1 hover:bg-white/20"
+      <AnimatePresence>
+        {toasts.map((toast) => {
+          const Icon = icons[toast.type] || Info;
+          return (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 100, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 100, scale: 0.9 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className={cn(
+                'flex items-center gap-3 rounded-xl px-4 py-3 text-white shadow-lg border',
+                colors[toast.type] || colors.info
+              )}
             >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        );
-      })}
+              <Icon className="h-5 w-5 flex-shrink-0" />
+              <span className="text-sm">{toast.message}</span>
+              <button
+                onClick={() => removeToast(toast.id)}
+                className="ml-2 rounded-lg p-1 hover:bg-white/20 transition-colors flex-shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }

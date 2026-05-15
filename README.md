@@ -31,7 +31,7 @@
 
 ## 技术栈
 
-- **前端**: React 19 + Vite, TailwindCSS, Zustand, TipTap, react-router-dom v7
+- **前端**: React 19 + Vite, TailwindCSS, Framer Motion, Zustand, TipTap, react-router-dom v7
 - **后端**: Python Flask + SQLite
 - **API**: MiniMax Chat Completions API (M2.7 模型)
 
@@ -114,7 +114,7 @@ ai-workshop/
 │   │   │   │   ├── StatsPanel.jsx         # 写作统计面板
 │   │   │   │   └── ...
 │   │   │   ├── music/           # 音乐模块组件
-│   │   │   └── ui/              # shadcn/ui 基础组件
+│   │   │   └── ui/              # shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress/EmptyState/Skeleton)
 │   │   ├── pages/               # 页面组件
 │   │   ├── store/               # Zustand 状态管理
 │   │   ├── api/                 # API 模块

@@ -12,7 +12,14 @@ function App() {
   const { theme } = useThemeStore();
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    const html = document.documentElement;
+    if (theme === 'dark') {
+      html.classList.remove('light');
+      html.classList.add('dark');
+    } else {
+      html.classList.remove('dark');
+      html.classList.add('light');
+    }
   }, [theme]);
 
   return (
