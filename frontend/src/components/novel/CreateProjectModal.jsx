@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { X, Save } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input, Textarea, Label } from '../ui/Input';
 import { Select } from '../ui/Select';
+import { Modal } from '../ui/Modal';
 
 const genres = ['玄幻', '都市', '科幻', '悬疑', '言情', '武侠', '奇幻', '历史', '游戏', '轻小说'];
 const coverColors = [
@@ -61,7 +62,7 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
   const handleClose = () => { reset(); onClose(); };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="创建新小说项目">
+    <Modal isOpen={isOpen} onClose={handleClose} title="辅助创作 - 创建项目">
       <div className="space-y-4">
         <div>
           <Label>小说标题 *</Label>

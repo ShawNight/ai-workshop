@@ -80,7 +80,7 @@ export function NovelListPage() {
           </Button>
           <Button onClick={() => setIsCreating(true)}>
             <Plus className="h-4 w-4" />
-            新建项目
+            辅助创作
           </Button>
         </div>
       </div>
@@ -109,14 +109,14 @@ export function NovelListPage() {
           description="选择一种方式开始你的创作之旅"
           action={
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => navigate('/novel/auto')}>
-                <Sparkles className="h-4 w-4" />
-                全自动创作
-              </Button>
-              <Button onClick={() => setIsCreating(true)}>
-                <Plus className="h-4 w-4" />
-                手动创建
-              </Button>
+                <Button variant="outline" onClick={() => navigate('/novel/auto')}>
+                  <Sparkles className="h-4 w-4" />
+                  全自动创作
+                </Button>
+                <Button onClick={() => setIsCreating(true)}>
+                  <Plus className="h-4 w-4" />
+                  辅助创作
+                </Button>
             </div>
           }
         />
