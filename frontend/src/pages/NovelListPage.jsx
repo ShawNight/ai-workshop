@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Plus } from 'lucide-react';
+import { BookOpen, Plus, Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
@@ -73,10 +73,16 @@ export function NovelListPage() {
           </h1>
           <p className="text-[var(--text-secondary)] text-sm mt-1">智能生成大纲、章节内容与角色设定</p>
         </div>
-        <Button onClick={() => setIsCreating(true)}>
-          <Plus className="h-4 w-4" />
-          新建项目
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => navigate('/novel/auto')}>
+            <Sparkles className="h-4 w-4" />
+            全自动创作
+          </Button>
+          <Button onClick={() => setIsCreating(true)}>
+            <Plus className="h-4 w-4" />
+            新建项目
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -100,12 +106,18 @@ export function NovelListPage() {
         <EmptyState
           icon={BookOpen}
           title="还没有小说项目"
-          description="创建你的第一个项目，开始 AI 辅助创作之旅"
+          description="选择一种方式开始你的创作之旅"
           action={
-            <Button onClick={() => setIsCreating(true)}>
-              <Plus className="h-4 w-4" />
-              创建第一个项目
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => navigate('/novel/auto')}>
+                <Sparkles className="h-4 w-4" />
+                全自动创作
+              </Button>
+              <Button onClick={() => setIsCreating(true)}>
+                <Plus className="h-4 w-4" />
+                手动创建
+              </Button>
+            </div>
           }
         />
       )}

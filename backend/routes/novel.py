@@ -1024,3 +1024,238 @@ def log_writing(project_id):
         return jsonify({"success": True, "log": log})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==================== 全自动小说生成 Harness ====================
+
+def _generate_design_mock(seed, genre, style, target_words):
+    """当 LLM 不可用时生成示例设计文档"""
+    import math
+    chs = max(20, int(target_words / 2500))
+    vols = max(2, chs // 40)
+    return {
+        "outline": [
+            {
+                "volume": i + 1,
+                "title": f"第{i+1}卷",
+                "goal": f"主角在本卷中逐步成长，面对新的挑战与机遇",
+                "chapters": max(25, chs // vols),
+                "description": f"本卷是故事的{'开篇' if i == 0 else '中段发展' if i < vols - 1 else '高潮与结局'}，主角在此阶段{'初露锋芒，打下根基' if i == 0 else '遭遇强敌，快速成长' if i < vols - 1 else '迎来终极对决，完成命运转折'}"
+            } for i in range(vols)
+        ],
+        "characters": [
+            {"name": "主角", "role": "主角", "arc": {"want": "变得强大，不再被人轻视", "need": "学会真正的勇气来自内心而非力量", "lie": "只要足够强大就能解决一切", "truth": "真正的强大是与他人建立羁绊", "arc_plan": "从追求力量的孤独者到拥有同伴的领袖"}, "traits": ["坚毅", "不服输", "内心敏感"], "appearance": "普通外表下有不服输的眼神", "backstory": "曾被视为废物，在一次奇遇中获得转机"},
+            {"name": "导师", "role": "导师", "arc": {"want": "找到传承者", "need": "弥补过去的遗憾", "lie": "过去的选择无法挽回", "truth": "通过指导他人获得救赎", "arc_plan": "从不情愿教导到真心守护"}, "traits": ["神秘", "严苛但关心"], "appearance": "看似普通却暗藏力量", "backstory": "曾经的强者，因某种原因隐退"},
+            {"name": "对手", "role": "反派", "arc": {"want": "证明自己比主角强", "need": "被认可和理解", "lie": "击败主角才能证明自己", "truth": "真正的敌人是自己的心魔", "arc_plan": "从死敌对头到亦敌亦友"}, "traits": ["骄傲", "执着"], "appearance": "锋芒毕露的强大", "backstory": "与主角有过节，是天生的竞争者"}
+        ],
+        "rules": [
+            {"rule": "力量体系有明确等级，不可越级挑战", "type": "hard", "detail": "当前世界的力量等级从低到高，角色只能在同级或越一小级战斗"},
+            {"rule": "获得力量需要付出相应代价", "type": "hard", "detail": "任何力量的提升都有对应代价（时间、资源、牺牲等）"}
+        ],
+        "foreshadows": [
+            {"id": 1, "description": "主角获得的力量来源有隐患", "plant_stage": "第1卷", "reveal_stage": f"第{vols-1 if vols>2 else vols}卷", "importance": "核心"},
+            {"id": 2, "description": "导师的真实身份和过去", "plant_stage": "第1卷", "reveal_stage": f"第{max(2, vols-1)}卷", "importance": "重要"}
+        ],
+        "synopsis": f"一个被认为最弱的人，在一次奇遇后踏上逆袭之路的{genre}故事",
+        "target_word_count": target_words,
+        "total_chapters": chs
+    }
+
+
+@novel_bp.route("/generate-design", methods=["POST"])
+def generate_design():
+    """从种子创意生成完整小说设计文档"""
+    data = request.get_json()
+    seed = data.get("seed", "")
+    genre = data.get("genre", "玄幻")
+    style = data.get("style", "热血升级流")
+    target_words = data.get("targetWords", 1000000)
+    synopsis = data.get("synopsis", "")
+    existing_characters = data.get("existingCharacters") or []
+
+    if not seed.strip():
+        return jsonify({"success": False, "error": "请提供种子创意"}), 400
+
+    try:
+        target_words = int(target_words)
+    except (ValueError, TypeError):
+        target_words = 1000000
+
+    existing_char_text = ""
+    if existing_characters:
+        lines = [f"- {c.get('name', '')}({c.get('role', '')}): {c.get('description', '')}" for c in existing_characters]
+        existing_char_text = "\n".join(lines)
+
+    prompts = render('novel/design.j2',
+        seed=seed,
+        genre=genre,
+        style=style,
+        target_words=target_words,
+        synopsis=synopsis,
+        existing_characters=existing_char_text)
+
+    try:
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'],
+                                   temperature=0.8, max_tokens=LLM_MAX_TOKENS_MEDIUM)
+
+        if result is None:
+            mock = _generate_design_mock(seed, genre, style, target_words)
+            return jsonify({"success": True, "design": mock, "mock": True})
+
+        design = parse_json_from_response(result, r'\{.*\}')
+        if design and isinstance(design, dict) and "outline" in design:
+            return jsonify({"success": True, "design": design})
+        else:
+            mock = _generate_design_mock(seed, genre, style, target_words)
+            return jsonify({"success": True, "design": mock, "mock": True, "warning": "AI返回格式异常，使用示例数据"})
+
+    except Exception:
+        mock = _generate_design_mock(seed, genre, style, target_words)
+        return jsonify({"success": True, "design": mock, "mock": True})
+
+
+@novel_bp.route("/auto-chapter", methods=["POST"])
+def auto_chapter():
+    """在运行时约束下生成单个章节"""
+    data = request.get_json()
+    chapter_title = data.get("chapterTitle", "新章节")
+    chapter_number = data.get("chapterNumber", 1)
+    genre = data.get("genre", "玄幻")
+    global_summary = data.get("globalSummary", "")
+    volume_title = data.get("volumeTitle", "")
+    volume_goal = data.get("volumeGoal", "")
+    volume_summary = data.get("volumeSummary", "")
+    recent_chapters = data.get("recentChapters", "")
+    character_states = data.get("characterStates") or []
+    rules = data.get("rules") or []
+    pending_foreshadows = data.get("pendingForeshadows") or []
+    chapter_guidance = data.get("chapterGuidance", "")
+
+    prompts = render('novel/auto_chapter.j2',
+        chapter_title=chapter_title,
+        chapter_number=chapter_number,
+        genre=genre,
+        global_summary=global_summary,
+        volume_title=volume_title,
+        volume_goal=volume_goal,
+        volume_summary=volume_summary,
+        recent_chapters=recent_chapters,
+        character_states=character_states,
+        rules=rules,
+        pending_foreshadows=pending_foreshadows,
+        chapter_guidance=chapter_guidance)
+
+    try:
+        result = generate_with_llm(prompts['user'], system_prompt=prompts['system'],
+                                   temperature=0.7, max_tokens=LLM_MAX_TOKENS_CHAPTER)
+
+        if result is None:
+            return jsonify({"success": False, "error": "AI 服务暂时不可用，请稍后重试"})
+
+        return jsonify({"success": True, "content": result})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"生成章节失败: {str(e)}"}), 500
+
+
+@novel_bp.route("/quality-check", methods=["POST"])
+def quality_check():
+    """对新生成的章节做一致性检查"""
+    data = request.get_json()
+    chapter_content = data.get("content", "")
+    chapter_number = data.get("chapterNumber", 1)
+    genre = data.get("genre", "玄幻")
+    rules = data.get("rules") or []
+    character_states = data.get("characterStates") or []
+    previous_summary = data.get("previousSummary", "")
+
+    if not chapter_content.strip():
+        return jsonify({"success": False, "error": "请提供章节内容"}), 400
+
+    rules_text = "\n".join(f"- {r}" for r in rules) if rules else "无"
+    chars_text = "\n".join(f"- {c}" for c in character_states) if character_states else "无"
+
+    check_prompt = f"""请检查以下小说章节是否符合设定。聚焦5个维度，用JSON返回：
+
+【章节内容】
+{chapter_content[:3000]}
+
+【世界硬规则】
+{rules_text}
+
+【角色当前状态】
+{chars_text}
+
+【前文摘要】
+{previous_summary or "无"}
+
+请返回JSON：
+{{
+  "checks": [
+    {{"dimension": "角色一致性", "pass": true/false, "detail": "具体说明"}},
+    {{"dimension": "世界规则", "pass": true/false, "detail": "具体说明"}},
+    {{"dimension": "剧情连贯", "pass": true/false, "detail": "具体说明"}},
+    {{"dimension": "节奏控制", "pass": true/false, "detail": "具体说明"}},
+    {{"dimension": "字数质量", "pass": true/false, "detail": "本章约{len(chapter_content)}字"}}
+  ],
+  "overall_pass": true/false,
+  "suggestions": ["改进建议1", "改进建议2"] or []
+}}"""
+
+    try:
+        result = generate_with_llm(check_prompt, temperature=0.3, max_tokens=LLM_MAX_TOKENS_SHORT)
+
+        if result is None:
+            return jsonify({"success": True, "checks": [], "overall_pass": True, "mock": True})
+
+        qa = parse_json_from_response(result, r'\{.*\}')
+        if qa:
+            return jsonify({"success": True, **qa})
+        return jsonify({"success": True, "checks": [], "overall_pass": True, "mock": True})
+
+    except Exception:
+        return jsonify({"success": True, "checks": [], "overall_pass": True, "mock": True})
+
+
+@novel_bp.route("/revise-design", methods=["POST"])
+def revise_design():
+    """对话式修改设计文档"""
+    data = request.get_json()
+    design = data.get("design", {})
+    instruction = data.get("instruction", "")
+    context = data.get("context", "")
+
+    if not instruction.strip():
+        return jsonify({"success": False, "error": "请提供修改指令"}), 400
+
+    design_json = json.dumps(design, ensure_ascii=False, indent=2)[:6000]
+
+    revise_prompt = f"""当前的完整小说设计文档如下，请根据用户的修改指令调整它。
+只修改用户指定的部分，其他部分保持不变。返回修改后的完整JSON。
+
+【当前设计文档】
+{design_json}
+
+【修改上下文】
+{context}
+
+【用户修改指令】
+{instruction}
+
+请返回修改后的完整设计文档JSON，保持原有结构不变。
+如果用户的修改涉及删除角色，请检查伏笔表和关系是否也需要更新。
+不要在JSON外输出任何文字。"""
+
+    try:
+        result = generate_with_llm(revise_prompt, temperature=0.5, max_tokens=LLM_MAX_TOKENS_MEDIUM)
+
+        if result is None:
+            return jsonify({"success": False, "error": "AI 服务暂时不可用"})
+
+        revised = parse_json_from_response(result, r'\{.*\}')
+        if revised and isinstance(revised, dict) and "outline" in revised:
+            return jsonify({"success": True, "design": revised})
+        return jsonify({"success": False, "error": "AI 修改格式异常，请重试"})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500

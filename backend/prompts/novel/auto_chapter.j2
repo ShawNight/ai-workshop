@@ -1,0 +1,53 @@
+---SYSTEM---
+你是一位专业的小说作家，正在按照预先设计的蓝图创作{{ genre }}小说的第{{ chapter_number }}章。
+你必须严格遵循以下约束，确保与全书设计保持一致。
+
+写作要求：
+1. 本章标题已在下方提供，如果标题与你理解的本章目标不匹配，以标题为准
+2. 严格遵循角色档案中的性格、能力和当前状态
+3. 不要违反世界硬规则清单中的任何一条
+4. 注意伏笔回收提醒
+5. 字数控制在2000-3000字
+6. 包含适当的人物对话、心理描写、环境描写
+7. 章节应有独立的情节闭环，同时推动主线发展
+8. 角色行动必须符合其当前心理状态和实力等级
+---USER---
+【本章信息】
+章节标题：{{ chapter_title }}
+章序号：第{{ chapter_number }}章
+所属卷：{{ volume_title }}
+本卷目标：{{ volume_goal }}
+
+【全篇摘要】
+{{ global_summary }}
+
+【本卷摘要】
+{{ volume_summary }}
+
+【前情回顾（前3章）】
+{{ recent_chapters }}
+
+【角色当前状态】
+{% for char in character_states %}
+- {{ char.name }}（{{ char.role }}）：{{ char.current_state }}
+{% endfor %}
+
+【世界硬规则（不可违反）】
+{% for rule in rules %}
+- {{ rule }}
+{% endfor %}
+
+【伏笔回收提醒】
+{% if pending_foreshadows %}
+以下伏笔计划在本阶段或近期回收，请在合适的时机自然融入：
+{% for fs in pending_foreshadows %}
+- 伏笔#{{ fs.id }}：{{ fs.description }}（计划回收阶段：{{ fs.reveal_stage }}）
+{% endfor %}
+{% else %}
+暂无即将到期的伏笔。
+{% endif %}
+
+【本章节的具体写作指导】
+{{ chapter_guidance }}
+
+请创作本章节内容。

@@ -49,8 +49,17 @@ cd frontend && npm run lint                    # ESLint 检查
 | 路由 | 文件 | 功能 |
 |------|------|------|
 | `/api/music/*` | `routes/music.py` | 歌词生成、MiniMax 音乐生成 API |
-| `/api/novel/*` | `routes/novel.py` | 小说项目 CRUD、大纲/章节/角色生成、续写、改写、头脑风暴、版本草稿 |
+| `/api/novel/*` | `routes/novel.py` | 小说项目 CRUD、大纲/章节/角色生成、续写、改写、头脑风暴、版本草稿、全自动 Harness |
 | `/api/music/export/*` | `routes/export.py` | 网易云音乐导出 |
+
+### 全自动小说 Harness API 端点
+
+| 方法 | 路由 | 功能 |
+|------|------|------|
+| `POST` | `/generate-design` | 从种子创意生成完整设计文档（大纲+角色+规则+伏笔） |
+| `POST` | `/auto-chapter` | 在运行时约束下生成单个章节 |
+| `POST` | `/quality-check` | 对章节做一致性检查 |
+| `POST` | `/revise-design` | 对话式修改设计文档 |
 
 ### 小说 API 端点详情
 
@@ -106,13 +115,15 @@ HOST=0.0.0.0
 - `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴、概要建议卡片、实体审阅面板
 - `frontend/src/components/novel/tabs/*` - 大纲 Tab（含方向引导弹窗 AppendOutlineModal）、角色 Tab（含批量生成+审阅+内联编辑）、世界观 Tab（含批量生成+审阅+内联编辑+AI生成描述）、设定 Tab、导出 Tab
 - `frontend/src/components/novel/chat/*` - AI 对话面板（character/world/relation 模式）、建议卡片
+- `frontend/src/components/novel/automate/*` - 全自动小说 Harness（SeedInput/DesignPreview/DesignChat）
 - `frontend/src/components/ui/*` - shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress/EmptyState/Skeleton)
 
 ## 前端路由
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
-| `/novel` | NovelListPage | 项目列表，卡片网格 + 新建弹窗 |
+| `/novel` | NovelListPage | 项目列表，卡片网格 + 新建弹窗 + 全自动创作入口 |
+| `/novel/auto` | AutoNovelPage | 全自动创作：种子输入→设计蓝图→逐章写作 |
 | `/novel/:projectId` | NovelEditorPage | 项目编辑器（大纲/角色/世界观/统计/设定/导出 6 个 Tab） |
 | `/novel/:projectId/write/:chapterId` | ChapterWritePage | 全屏专注写作模式 |
 

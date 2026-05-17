@@ -5,6 +5,7 @@ import { ToastContainer } from './components/ui/Toast';
 import { HomePage } from './pages/HomePage';
 import { MusicPage } from './pages/MusicPage';
 import { NovelPage } from './pages/NovelPage';
+import { AutoNovelPage } from './pages/AutoNovelPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useThemeStore } from './store/themeStore';
 
@@ -31,6 +32,7 @@ function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/music" element={<MusicPage />} />
+              <Route path="/novel/auto" element={<AutoNovelPage />} />
               <Route path="/novel/*" element={<NovelPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>

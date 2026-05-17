@@ -46,6 +46,11 @@ export const novelApi = {
   getDraftContent: (draftId) => api.get(`/novel/drafts/${draftId}`),
   logWriting: (projectId, data) => api.post(`/novel/projects/${projectId}/stats/log`, data),
   extractEntities: (data) => api.post('/novel/extract-entities', data),
+  // 全自动小说 Harness
+  generateDesign: (data) => api.post('/novel/generate-design', data),
+  autoChapter: (data) => api.post('/novel/auto-chapter', data),
+  qualityCheck: (data) => api.post('/novel/quality-check', data),
+  reviseDesign: (data) => api.post('/novel/revise-design', data),
 };
 
 export default api;
