@@ -40,6 +40,7 @@ cd frontend && npm run lint                    # ESLint 检查
 - **共享 Hooks**: `useAutoSave`（自动保存+防抖）、`useChapterActions`（AI生成/续写）、`useHotkeys`（快捷键）
 - **共享工具**: `formatContent.js`（formatAIContent/stripHtml/generateId）、`constants/novel.js`（状态枚举/关系类型/地点类型）
 - **LLM 调用**: `generate_with_llm()` 支持 temperature 和 max_tokens 参数，各端点使用差异化配置
+- **LLM 缓存**: 三级缓存优化策略 — 提示词模板静态内容前置（API 侧前缀缓存命中）+ 客户端 LRU 响应缓存 + seed 确定性输出，模型无关
 - **上下文构建**: `utils/context_builder.py` 三级上下文策略（摘要层/前文层/设定层），自动传入跨章节上下文，已写/未写标记避免情节重复
 - **概要适配**: 生成/续写章节时自动提取 `summarySuggestion`（标题+概要），前端可一键采纳同步大纲
 - **实体提取**: `/extract-entities` 端点从正文提取新角色/地点，对比已有列表避免重复

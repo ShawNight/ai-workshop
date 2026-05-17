@@ -12,42 +12,32 @@
 7. 章节应有独立的情节闭环，同时推动主线发展
 8. 角色行动必须符合其当前心理状态和实力等级
 ---USER---
-【本章信息】
-章节标题：{{ chapter_title }}
-章序号：第{{ chapter_number }}章
-所属卷：{{ volume_title }}
-本卷目标：{{ volume_goal }}
-
 【全篇摘要】
 {{ global_summary }}
-
-【本卷摘要】
+【本卷信息】
+本卷标题：{{ volume_title }}
+本卷目标：{{ volume_goal }}
 {{ volume_summary }}
-
-【前情回顾（前3章）】
-{{ recent_chapters }}
-
 【角色当前状态】
 {% for char in character_states %}
 - {{ char.name }}（{{ char.role }}）：{{ char.current_state }}
 {% endfor %}
-
 【世界硬规则（不可违反）】
 {% for rule in rules %}
 - {{ rule }}
 {% endfor %}
-
-【伏笔回收提醒】
 {% if pending_foreshadows %}
+【伏笔回收提醒】
 以下伏笔计划在本阶段或近期回收，请在合适的时机自然融入：
 {% for fs in pending_foreshadows %}
 - 伏笔#{{ fs.id }}：{{ fs.description }}（计划回收阶段：{{ fs.reveal_stage }}）
 {% endfor %}
-{% else %}
-暂无即将到期的伏笔。
 {% endif %}
-
+【前情回顾（前3章）】
+{{ recent_chapters }}
+【本章信息】
+章节标题：{{ chapter_title }}
+章序号：第{{ chapter_number }}章
 【本章节的具体写作指导】
 {{ chapter_guidance }}
-
 请创作本章节内容。

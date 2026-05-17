@@ -7,29 +7,23 @@
 注重场景描写、人物对话和心理刻画，保持叙事节奏感。
 如果提供了角色关系信息，请在情节中合理利用这些关系推动故事发展。
 ---USER---
-章节标题：{{ chapter_title }}
-{% if chapter_description %}章节概要：{{ chapter_description }}{% endif %}
 故事类型：{{ genre }}
 故事背景：{{ premise or '一个充满悬念和惊喜的故事' }}
-
-{% if recent_summary %}
-【前文脉络】
-{{ recent_summary }}
-{% endif %}
-
-前文摘要：{{ previous_content or '（故事开篇）' }}
-
 {{ story_context }}
-
 {% if settings_context %}
 【角色与设定】
 {{ settings_context }}
 {% endif %}
-
 {% if current_outline %}
 本章大纲要点：{{ current_outline }}
 {% endif %}
-
+{% if recent_summary %}
+【前文脉络】
+{{ recent_summary }}
+{% endif %}
+前文摘要：{{ previous_content or '（故事开篇）' }}
+章节标题：{{ chapter_title }}
+{% if chapter_description %}章节概要：{{ chapter_description }}{% endif %}
 请创作本章节内容，要求：
 1. 字数在 1000-2000 字之间
 2. 包含清晰的开头、发展和结尾

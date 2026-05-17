@@ -70,7 +70,7 @@ def set_provider_config(key: str, value: str):
 
 
 def call_llm(messages, temperature=0.7, max_tokens=None, timeout=None,
-             provider_name=None, system_prompt=None, prompt=None) -> LLMResponse:
+             provider_name=None, system_prompt=None, prompt=None, seed=None) -> LLMResponse:
     """统一 LLM 调用入口"""
     if provider_name is None:
         provider_name = get_current_text_provider()
@@ -109,6 +109,7 @@ def call_llm(messages, temperature=0.7, max_tokens=None, timeout=None,
         thinking_enabled=provider.thinking_enabled,
         reasoning_effort=provider.reasoning_effort,
         thinking_budget=provider.thinking_budget,
+        seed=seed,
     )
 
     try:

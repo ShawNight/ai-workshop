@@ -17,7 +17,7 @@ class BaseProtocol(ABC):
     @abstractmethod
     def build_body(self, model, messages, max_tokens, temperature,
                    thinking_enabled=False, reasoning_effort="high",
-                   thinking_budget=10000) -> dict:
+                   thinking_budget=10000, seed=None) -> dict:
         """构建请求体"""
 
     @abstractmethod
@@ -55,7 +55,7 @@ class OpenAIProtocol(BaseProtocol):
 
     def build_body(self, model, messages, max_tokens, temperature,
                    thinking_enabled=False, reasoning_effort="high",
-                   thinking_budget=10000) -> dict:
+                   thinking_budget=10000, seed=None) -> dict:
         body = {
             "model": model,
             "messages": messages,
@@ -67,6 +67,8 @@ class OpenAIProtocol(BaseProtocol):
             # 思考模式不支持 temperature 等参数
         else:
             body["temperature"] = temperature
+            if seed is not None:
+                body["seed"] = seed
         return body
 
     def check_error(self, data: dict) -> tuple[bool, str]:
@@ -107,7 +109,7 @@ class AnthropicProtocol(BaseProtocol):
 
     def build_body(self, model, messages, max_tokens, temperature,
                    thinking_enabled=False, reasoning_effort="high",
-                   thinking_budget=10000) -> dict:
+                   thinking_budget=10000, seed=None) -> dict:
         # Anthropic: system 消息提取为顶层参数
         system_text = ""
         api_messages = []

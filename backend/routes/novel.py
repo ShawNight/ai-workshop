@@ -1,6 +1,7 @@
 import json
 import re
 import uuid
+import hashlib
 from flask import Blueprint, request, jsonify
 
 from database import (
@@ -13,22 +14,51 @@ from database import (
 novel_bp = Blueprint("novel", __name__)
 
 from providers import call_llm
-from config import LLM_MAX_TOKENS_CHAPTER, LLM_MAX_TOKENS_MEDIUM, LLM_MAX_TOKENS_SHORT
+from config import LLM_MAX_TOKENS_CHAPTER, LLM_MAX_TOKENS_MEDIUM, LLM_MAX_TOKENS_SHORT, LLM_CACHE_ENABLED, LLM_CACHE_SEED, LLM_CACHE_MAX_SIZE
 from prompts import render
 from utils.token_budget import estimate_tokens, smart_truncate, allocate_context_budget
 from utils.context_builder import build_chapter_context
+
+# ==================== LLM 响应缓存 ====================
+
+_LLM_CACHE = {}
+
+def _make_cache_key(prompt, system_prompt, temperature, max_tokens):
+    payload = (system_prompt or "") + (prompt or "") + str(temperature) + str(max_tokens)
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+def _cache_get(prompt, system_prompt, temperature, max_tokens):
+    if not LLM_CACHE_ENABLED:
+        return None
+    key = _make_cache_key(prompt, system_prompt, temperature, max_tokens)
+    return _LLM_CACHE.get(key)
+
+def _cache_set(prompt, system_prompt, temperature, max_tokens, content):
+    if not LLM_CACHE_ENABLED:
+        return
+    key = _make_cache_key(prompt, system_prompt, temperature, max_tokens)
+    if len(_LLM_CACHE) >= LLM_CACHE_MAX_SIZE:
+        _LLM_CACHE.pop(next(iter(_LLM_CACHE)))
+    _LLM_CACHE[key] = content
 
 # ==================== LLM 调用 ====================
 
 
 def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, max_tokens=None, timeout=None):
     """调用 LLM API 生成内容。成功返回文本，失败返回 None。
-    当传入 messages 时，直接使用该消息列表（用于多轮对话场景）。"""
+    当传入 messages 时，直接使用该消息列表（用于多轮对话场景）。
+    支持 LRU 响应缓存，命中时直接返回缓存内容。"""
     if max_tokens is None:
         max_tokens = LLM_MAX_TOKENS_CHAPTER
 
     if timeout is None:
         timeout = max(120, max_tokens // 20 + 30)
+
+    # 检查缓存（仅对单轮调用有效，多轮 chat 不缓存）
+    if messages is None:
+        cached = _cache_get(prompt, system_prompt, temperature, max_tokens)
+        if cached is not None:
+            return cached
 
     # 构建最终 messages
     if messages is None:
@@ -44,11 +74,16 @@ def generate_with_llm(prompt, system_prompt="", messages=None, temperature=0.7, 
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        seed=LLM_CACHE_SEED if LLM_CACHE_ENABLED else None,
     )
 
     if not resp.success:
         print(f"[LLM] Error: {resp.error}")
         return None
+
+    # 写入缓存
+    if messages is None:
+        _cache_set(prompt, system_prompt, temperature, max_tokens, resp.content)
 
     return resp.content
 

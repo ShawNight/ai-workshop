@@ -5,24 +5,19 @@
 严格遵守已设定的角色性格和关系，确保角色言行一致。
 {% if writing_style %}写作风格：{{ writing_style }}{% endif %}
 ---USER---
-章节：{{ chapter_title }}
 类型：{{ genre }}
 故事背景：{{ premise or '' }}
-
-{% if recent_summary %}
-【前文脉络】
-{{ recent_summary }}
-{% endif %}
-
 {{ story_context }}
-
 {% if settings_context %}
 【角色与设定】
 {{ settings_context }}
 {% endif %}
-
+{% if recent_summary %}
+【前文脉络】
+{{ recent_summary }}
+{% endif %}
+章节：{{ chapter_title }}
 已有内容（结尾部分）：
 {{ current_content }}
-
 请从以上内容断点处自然续写，字数在 800-1500 字。确保文风一致，情节合理推进，角色行为符合其设定。
 {% if recent_summary %}注意与前文脉络中描述的情节发展保持连贯。{% endif %}
