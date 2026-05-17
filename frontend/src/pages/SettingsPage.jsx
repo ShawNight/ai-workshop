@@ -180,11 +180,12 @@ export function SettingsPage() {
               <select
                 value={textProvider}
                 onChange={(e) => setTextProvider(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/30 focus:border-[var(--primary)] transition-colors cursor-pointer"
+                className="w-full h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)] transition-all duration-200 appearance-none"
+                style={{ backgroundImage: 'none' }}
               >
-                <option value="">未选择</option>
+                <option value="" className="bg-[var(--surface)] text-[var(--text-primary)]">未选择</option>
                 {providers.map(p => (
-                  <option key={p.name} value={p.name}>
+                  <option key={p.name} value={p.name} className="bg-[var(--surface)] text-[var(--text-primary)]">
                     {p.displayName}{p.apiKeyBroken ? ' (Key 异常)' : !p.apiKeySet ? ' (未配置)' : ''}
                   </option>
                 ))}
@@ -196,7 +197,7 @@ export function SettingsPage() {
                 <select
                   value={musicProvider}
                   onChange={(e) => setMusicProvider(e.target.value)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/30 focus:border-[var(--primary)] transition-colors cursor-pointer"
+                  className="w-full h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)] transition-all duration-200"
                 >
                   <option value="">未选择</option>
                   {musicProviders.map(p => (

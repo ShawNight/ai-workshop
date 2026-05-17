@@ -154,3 +154,10 @@ html {
 .ProseMirror p.is-editor-empty:first-child::before {
   text-indent: 0;
 }
+
+/* 深色模式下拉选项背景 */
+html:not(.light) select option,
+.dark select option {
+  background-color: #1E293B;
+  color: #F1F5F9;
+}
