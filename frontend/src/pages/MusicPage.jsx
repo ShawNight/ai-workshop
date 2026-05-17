@@ -650,22 +650,31 @@ function MusicPlayerModal({
         </div>
 
         <div className="p-4 border-t border-[var(--border)] space-y-4">
+          {/* 进度条 — 增加可点击区域 */}
           <div
-            className="h-2 rounded-full bg-[var(--border)] cursor-pointer"
+            className="py-3 cursor-pointer group"
             onClick={handleProgressClick}
           >
-            <div
-              className="h-full rounded-full bg-[var(--primary)] transition-all"
-              style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
-            />
+            <div className="relative h-2 rounded-full bg-[var(--border)]">
+              {/* 进度填充 */}
+              <div
+                className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)] transition-all duration-100"
+                style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
+              />
+              {/* 进度圆点（hover 时显示） */}
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
+                style={{ left: duration ? `calc(${(currentTime / duration) * 100}% - 8px)` : '-8px' }}
+              />
+            </div>
           </div>
 
           <div className="flex items-center justify-center gap-4">
             <button
               onClick={togglePlay}
               className={cn(
-                'w-14 h-14 rounded-full flex items-center justify-center transition-colors',
-                'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)]'
+                'w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95',
+                'bg-gradient-to-br from-[var(--primary)] to-[var(--secondary)] text-white shadow-lg hover:shadow-xl'
               )}
             >
               {isPlaying ? (
