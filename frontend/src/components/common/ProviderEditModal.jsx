@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Server, MessageSquare, Music, Key, Brain } from 'lucide-react';
+import { X, Server, MessageSquare, Key, Brain, Plus, Trash2, Layers } from 'lucide-react';
 import useProviderStore from '../../store/providerStore';
+import { providerApi } from '../../api/provider';
 
 const inputClass = [
   'w-full rounded-lg border border-[var(--border)] bg-[var(--bg)]',
@@ -41,19 +42,22 @@ export function ProviderEditModal({ mode, provider, onClose }) {
     thinkingEnabled: false,
     reasoningEffort: 'high',
     thinkingBudget: 10000,
-    supportsMusic: false,
-    musicUrl: '',
-    musicModel: '',
-    lyricsUrl: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [models, setModels] = useState([]);
+  const [newModel, setNewModel] = useState('');
+  const [addingModel, setAddingModel] = useState(false);
 
   const selectedProtocol = protocols.find(p => p.name === form.protocol);
   const showThinking = selectedProtocol?.supportsThinking;
 
   useEffect(() => {
     if (isEdit && provider) {
+      // 加载模型列表
+      providerApi.getModels(provider.name).then(res => {
+        if (res.data.success) setModels(res.data.models);
+      }).catch(() => {});
       setForm({
         name: provider.name,
         displayName: provider.displayName,
@@ -64,10 +68,6 @@ export function ProviderEditModal({ mode, provider, onClose }) {
         thinkingEnabled: provider.thinkingEnabled || false,
         reasoningEffort: provider.reasoningEffort || 'high',
         thinkingBudget: provider.thinkingBudget || 10000,
-        supportsMusic: provider.supportsMusic,
-        musicUrl: provider.musicUrl || '',
-        musicModel: provider.musicModel || '',
-        lyricsUrl: provider.lyricsUrl || '',
       });
     }
   }, [mode, provider]);
@@ -76,15 +76,44 @@ export function ProviderEditModal({ mode, provider, onClose }) {
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleAddModel = async () => {
+    const name = (newModel || '').trim();
+    if (!name) return;
+    setAddingModel(true);
+    try {
+      const res = await providerApi.addModel(form.name, { modelName: name });
+      if (res.data.success) {
+        setModels(prev => [...prev, res.data.model]);
+        setNewModel('');
+      }
+    } catch (e) {
+      setError(e.response?.data?.error || '添加失败');
+    } finally {
+      setAddingModel(false);
+    }
+  };
+
+  const handleDeleteModel = async (modelId) => {
+    try {
+      await providerApi.deleteModel(form.name, modelId);
+      setModels(prev => prev.filter(m => m.id !== modelId));
+    } catch (e) {
+      setError(e.response?.data?.error || '删除失败');
+    }
+  };
+
   const handleSave = async () => {
     setError('');
     if (!form.name.trim()) { setError('标识名称不能为空'); return; }
     if (!form.chatUrl.trim()) { setError('API 地址不能为空'); return; }
-    if (!form.chatModel.trim()) { setError('模型名称不能为空'); return; }
+
+    // 模型名称：优先用表单值，否则取可用模型列表的第一个
+    const chatModel = form.chatModel.trim() || (models.length > 0 ? models[0].modelName : '');
+    if (!chatModel) { setError('请先在"可用模型"中添加至少一个模型'); return; }
 
     setSaving(true);
     try {
-      const payload = { ...form };
+      const payload = { ...form, chatModel };
       if (isEdit) {
         const result = await updateProvider(form.name, payload);
         if (!result.success) { setError(result.error); return; }
@@ -190,36 +219,66 @@ export function ProviderEditModal({ mode, provider, onClose }) {
                   className={inputClass}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>
-                    模型名称 <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={form.chatModel}
-                    onChange={(e) => handleChange('chatModel', e.target.value)}
-                    placeholder="deepseek-chat"
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>
-                    <span className="inline-flex items-center gap-1">
-                      <Key className="h-3 w-3" /> API Key
-                    </span>
-                  </label>
-                  <input
-                    type="password"
-                    value={form.apiKey}
-                    onChange={(e) => handleChange('apiKey', e.target.value)}
-                    placeholder={isEdit ? (provider?.apiKeyBroken ? '请重新输入' : '留空则不修改') : 'sk-...'}
-                    className={inputClass}
-                  />
-                </div>
+              <div>
+                <label className={labelClass}>
+                  <span className="inline-flex items-center gap-1">
+                    <Key className="h-3 w-3" /> API Key
+                  </span>
+                </label>
+                <input
+                  type="password"
+                  value={form.apiKey}
+                  onChange={(e) => handleChange('apiKey', e.target.value)}
+                  placeholder={isEdit ? (provider?.apiKeyBroken ? '请重新输入' : '留空则不修改') : 'sk-...'}
+                  className={inputClass}
+                />
               </div>
             </div>
           </section>
+
+          {/* Available Models (edit mode only) */}
+          {isEdit && (
+            <section>
+              <SectionTitle icon={Layers} title="可用模型" />
+              <p className="text-[11px] text-[var(--text-secondary)] mb-3 -mt-1">
+                配置此 Provider 支持的所有模型，Agent 配置时会以下拉列表展示
+              </p>
+              <div className="space-y-2">
+                {models.length === 0 && (
+                  <p className="text-xs text-[var(--text-secondary)]/60">暂无模型，请添加</p>
+                )}
+                {models.map((m) => (
+                  <div key={m.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg)] border border-[var(--border)]">
+                    <span className="text-xs text-[var(--text-primary)] flex-1 truncate">{m.modelName}</span>
+                    <button
+                      onClick={() => handleDeleteModel(m.id)}
+                      className="p-1 rounded hover:bg-red-50 text-[var(--text-secondary)] hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newModel}
+                    onChange={(e) => setNewModel(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddModel()}
+                    placeholder="模型名称，如 deepseek-chat"
+                    className={`${inputClass} flex-1`}
+                  />
+                  <button
+                    onClick={handleAddModel}
+                    disabled={addingModel || !newModel.trim()}
+                    className="flex-shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)]/20 disabled:opacity-40 transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                    添加
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Thinking Mode */}
           {showThinking && (
@@ -273,56 +332,7 @@ export function ProviderEditModal({ mode, provider, onClose }) {
             </section>
           )}
 
-          {/* Music */}
-          <section>
-            <button
-              type="button"
-              onClick={() => handleChange('supportsMusic', !form.supportsMusic)}
-              className="flex items-center gap-3 w-full"
-            >
-              <div className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${form.supportsMusic ? 'bg-[var(--primary)]' : 'bg-gray-300 dark:bg-gray-600'}`}>
-                <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${form.supportsMusic ? 'translate-x-4' : ''}`} />
-              </div>
-              <SectionTitle icon={Music} title="音乐生成" />
-            </button>
 
-            {form.supportsMusic && (
-              <div className="mt-3 pl-4 border-l-2 border-[var(--primary)]/20 space-y-3">
-                <div>
-                  <label className={labelClass}>音乐 API 地址</label>
-                  <input
-                    type="text"
-                    value={form.musicUrl}
-                    onChange={(e) => handleChange('musicUrl', e.target.value)}
-                    placeholder="https://api.example.com/v1/music_generation"
-                    className={inputClass}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelClass}>音乐模型</label>
-                    <input
-                      type="text"
-                      value={form.musicModel}
-                      onChange={(e) => handleChange('musicModel', e.target.value)}
-                      placeholder="music-2.6"
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>歌词 API</label>
-                    <input
-                      type="text"
-                      value={form.lyricsUrl}
-                      onChange={(e) => handleChange('lyricsUrl', e.target.value)}
-                      placeholder="https://api.example.com/v1/lyrics"
-                      className={inputClass}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
         </div>
 
         {/* Footer */}

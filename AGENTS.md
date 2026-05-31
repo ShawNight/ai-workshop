@@ -6,10 +6,11 @@
 ai-workshop/
 ├── frontend/          # React 19 + Vite (port 5173)
 ├── backend/
-│   ├── routes/        # API 路由（music.py, novel.py, export.py）
-│   ├── prompts/       # Jinja2 提示词模板（.j2 文件，与路由代码分离）
+│   ├── agents/        # 多 Agent 协作引擎（Planner/Writer/Critic/Editor）
+│   ├── routes/        # API 路由（novel.py, provider.py, harness.py）
+│   ├── prompts/       # Jinja2 提示词模板（design.j2, auto_chapter.j2, revise_block.j2, extract_summary.j2）
 │   └── ...
-├── README.md          # 项目说明与功能清单（功能变更时必须同步更新）
+├── README.md          # 项目说明与功能清单
 └── AGENTS.md          # 本文档
 ```
 
@@ -28,158 +29,53 @@ cd frontend && npm run build                  # 生产构建
 cd frontend && npm run lint                    # ESLint 检查
 ```
 
-**启动顺序**: 在不同终端中先启动后端，再启动前端。
-
 ## 架构说明
 
-- **API 代理**: Vite 将 `/api/*` 请求代理到 `http://localhost:3001` (见 `frontend/vite.config.js`)
+- **多 Agent 协作创作**: 4 个 AI Agent 角色按状态机流转协作完成小说创作
+  - **策划师 (Planner)**: 从种子创意生成完整设计蓝图（大纲/角色/世界规则/伏笔）
+  - **写手 (Writer)**: 根据设计文档逐章创作
+  - **评论家 (Critic)**: 审查章节质量（一致性/剧情/节奏），通过则进入编辑，不通过则退回写手修改
+  - **编辑 (Editor)**: 润色语言表达，完成后进入下一章
+- **Agent 模型配置**: 每个 Agent 可独立指定使用的 LLM Provider 和模型
+- **API 代理**: Vite 将 `/api/*` 请求代理到 `http://localhost:3001`
 - **无 TypeScript**: 项目使用纯 JSX，无类型检查命令
 - **状态管理**: Zustand store 在 `frontend/src/store/`
-- **API 层**: `frontend/src/api/index.js` - axios 实例，包含 musicApi、novelApi
-- **提示词管理**: `backend/prompts/` - Jinja2 模板文件，路由代码通过 `render('novel/chapter.j2', **kwargs)` 调用。含 `---SYSTEM---`/`---USER---` 分隔符的模板返回 `{'system': '...', 'user': '...'}，否则返回字符串
-- **共享 Hooks**: `useAutoSave`（自动保存+防抖）、`useChapterActions`（AI生成/续写）、`useHotkeys`（快捷键）
-- **共享工具**: `formatContent.js`（formatAIContent/stripHtml/generateId）、`constants/novel.js`（状态枚举/关系类型/地点类型）
-- **LLM 调用**: `generate_with_llm()` 支持 temperature 和 max_tokens 参数，各端点使用差异化配置
-- **LLM 缓存**: 三级缓存优化策略 — 提示词模板静态内容前置（API 侧前缀缓存命中）+ 客户端 LRU 响应缓存 + seed 确定性输出，模型无关
-- **上下文构建**: `utils/context_builder.py` 三级上下文策略（摘要层/前文层/设定层），自动传入跨章节上下文，已写/未写标记避免情节重复
-- **概要适配**: 生成/续写章节时自动提取 `summarySuggestion`（标题+概要），前端可一键采纳同步大纲
-- **实体提取**: `/extract-entities` 端点从正文提取新角色/地点，对比已有列表避免重复
+- **LLM 调用**: `call_llm()` 支持 temperature 和 max_tokens 参数，每个 Agent 可使用不同配置
 
 ## 后端 API 端点
 
 | 路由 | 文件 | 功能 |
 |------|------|------|
-| `/api/music/*` | `routes/music.py` | 歌词生成、MiniMax 音乐生成 API |
-| `/api/novel/*` | `routes/novel.py` | 小说项目 CRUD、大纲/章节/角色生成、续写、改写、头脑风暴、版本草稿、全自动 Harness |
-| `/api/music/export/*` | `routes/export.py` | 网易云音乐导出 |
-
-### 全自动小说 Harness API 端点
-
-| 方法 | 路由 | 功能 |
-|------|------|------|
-| `POST` | `/generate-design` | 从种子创意生成完整设计文档（大纲+角色+规则+伏笔） |
-| `POST` | `/auto-chapter` | 在运行时约束下生成单个章节 |
-| `POST` | `/quality-check` | 对章节做一致性检查 |
-| `POST` | `/revise-design` | 对话式修改设计文档 |
-
-### 小说 API 端点详情
-
-| 方法 | 路由 | 功能 |
-|------|------|------|
-| `GET` | `/projects` | 获取所有项目 |
-| `POST` | `/projects` | 创建项目（支持 synopsis/targetWordCount/writingStyle/coverColor） |
-| `GET` | `/projects/<id>` | 获取单个项目 |
-| `PUT` | `/projects/<id>` | 更新项目（支持所有字段部分更新） |
-| `DELETE` | `/projects/<id>` | 删除项目（级联删除关联数据） |
-| `POST` | `/generate-outline` | AI 生成层级大纲（支持 characters/relationships/locations 上下文，支持 direction 方向引导） |
-| `POST` | `/generate-chapter` | AI 生成章节（支持跨章节上下文），响应含 `summarySuggestion` 概要建议 |
-| `POST` | `/continue-chapter` | AI 续写章节（支持跨章节上下文），响应含 `summarySuggestion` 概要建议 |
-| `POST` | `/rewrite` | AI 改写选中文本（支持角色上下文保持人设一致） |
-| `POST` | `/brainstorm` | AI 头脑风暴（支持 characters/relationships/locations/outline 上下文，策略性截断） |
-| `POST` | `/generate-outline-directions` | AI 生成大纲方向方案（用户先选方向再生成章节） |
-| `POST` | `/character` | AI 创建单个角色（生成 traits/appearance/backstory） |
-| `POST` | `/generate-characters` | AI 批量生成角色（1-8个，支持已有角色避重名） |
-| `POST` | `/generate-locations` | AI 批量生成地点（1-6个，支持角色关联） |
-| `POST` | `/generate-location` | AI 生成单个地点详情（根据名称+类型生成描述和剧情意义） |
-| `POST` | `/chat` | AI 多轮对话（character/world/character_relation 模式） |
-| `GET` | `/projects/<id>/stats` | 获取写作统计 |
-| `POST` | `/projects/<id>/drafts/<chapterId>` | 保存章节草稿版本 |
-| `GET` | `/projects/<id>/drafts/<chapterId>` | 获取章节版本历史 |
-| `GET` | `/drafts/<draftId>` | 获取特定草稿内容 |
-| `POST` | `/projects/<id>/stats/log` | 记录写作日志 |
-| `PUT` | `/projects/<id>/chapters/<chapterId>` | 增量更新单章内容（content/title） |
-| `POST` | `/extract-entities` | 从正文中提取新角色和地点（对比已有列表避免重复） |
-
-## LLM API 集成
-
-- **小说/角色**: 使用 `LLM_CHAT_URL` (Chat Completions API) + `LLM_CHAT_MODEL` (MiniMax-M2.7)
-- **歌词**: 使用 `LLM_LYRICS_URL` + `LLM_LYRICS_MODEL`
-- **音乐**: 使用 `LLM_MUSIC_URL` + `LLM_MUSIC_MODEL`
-
-**降级策略**: 如果未设置 API key 或 API 调用失败，所有小说端点会返回内置的中文示例数据（mock），不会报 500 错误。
+| `/api/novel/*` | `routes/novel.py` | 项目 CRUD、Harness 端点 |
+| `/api/harness/*` | `routes/harness.py` | 多 Agent 协作控制（start/advance/state） |
+| `/api/provider/*` | `routes/provider.py` | Provider 配置管理 |
 
 ## LLM API 配置
 
 在 `backend/.env` 文件中设置：
 ```
 LLM_API_KEY=your_api_key_here
-LLM_CHAT_URL=https://api.minimaxi.com/v1/chat/completions
-LLM_CHAT_MODEL=MiniMax-M2.7
 PORT=3001
 HOST=0.0.0.0
 ```
 
-## 前端组件归属
-
-- `frontend/src/components/music/*` - 歌词编辑器、音乐播放器、歌词同步显示、歌词时间戳校准
-- `frontend/src/utils/lrcCalibration.js` - LRC 时间戳校准工具函数（applyLrcOffsets/parseLrcTime/formatTimeToLrc）
-- `frontend/src/components/novel/*` - 项目卡片、创建弹窗、富文本编辑器、角色关系图、版本历史、头脑风暴、概要建议卡片、实体审阅面板
-- `frontend/src/components/novel/tabs/*` - 大纲 Tab（含方向引导弹窗 AppendOutlineModal）、角色 Tab（含批量生成+审阅+内联编辑）、世界观 Tab（含批量生成+审阅+内联编辑+AI生成描述）、设定 Tab、导出 Tab
-- `frontend/src/components/novel/chat/*` - AI 对话面板（character/world/relation 模式）、建议卡片
-- `frontend/src/components/novel/automate/*` - 全自动小说 Harness（SeedInput/DesignPreview/DesignChat）
-- `frontend/src/components/ui/*` - shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress/EmptyState/Skeleton)
+> 可通过前端设置页面配置多个 Provider，并为每个 Agent 分配不同的模型。
 
 ## 前端路由
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
-| `/novel` | NovelListPage | 项目列表，卡片网格 + 新建弹窗 + 全自动创作入口 |
-| `/novel/auto` | AutoNovelPage | 全自动创作：种子输入→设计蓝图→逐章写作 |
-| `/novel/:projectId` | NovelEditorPage | 项目编辑器（大纲/角色/世界观/统计/设定/导出 6 个 Tab） |
-| `/novel/:projectId/write/:chapterId` | ChapterWritePage | 全屏专注写作模式 |
-
-## 小说创作功能设计
-
-### 角色 Tab 功能
-- **手动添加角色**: 填写名称+定位+描述，点击"AI 生成性格特征"自动补全 traits/appearance/backstory
-- **AI 批量生成**: 根据故事设定一键生成 1-8 个角色，进入审阅区逐个采纳/编辑/丢弃或全部操作
-- **内联编辑**: 展开角色卡片后可编辑所有字段（名称/定位/描述/外貌/背景/性格特征标签增删改）
-- **AI 深入探讨**: 每个角色可打开 ChatPanel，AI 可返回 update_character/add_trait/create_relationship 等建议
-- **删除确认**: 删除角色时弹出确认框，显示关联关系数量
-
-### 世界观 Tab 功能
-- **手动添加地点**: 填写名称+类型+描述+剧情意义
-- **AI 批量生成**: 根据故事设定一键生成 1-6 个地点（传入已有角色以建立自然关联），进入审阅区
-- **AI 生成描述**: 创建地点时填入名称后，可点击"AI 生成描述"自动补全描述和剧情意义
-- **内联编辑**: 展开地点卡片后可编辑所有字段（名称/类型/描述/剧情意义）
-- **AI 深入探讨**: 每个地点可打开 ChatPanel，AI 可返回 update_location/add_location_detail/create_location 等建议
-- **删除确认**: 删除地点时弹出确认框
-
-### 大纲生成
-- 生成大纲时自动传入当前项目的 characters/relationships/locations 作为上下文
-- AI 在设计大纲时会参照已有的角色和世界观设定
-- 追加章节时弹出方向引导弹窗：先输入剧情走向，AI 生成 3 种详细方案（含标题+描述+关键转折点），用户可编辑后选择方向，再生成最终章节
-- 首次生成大纲时方向为可选，追加章节时方向为必填
-- `/generate-outline` 支持 `direction` 参数，将用户选中的方案文本作为方向提示
-
-### 头脑风暴
-- 传入 characters/relationships/locations(最多5个)/outline(最多10条) 作为上下文
-- 策略性截断避免过度锚定，保持创意发散性
-
-### EditorSidebar 引导
-- 侧边栏支持折叠为图标面板（`w-16`）或展开为文字面板（`w-56`）
-- 当前激活 Tab 左侧显示 3px 彩色指示条
-- 当项目无角色、无地点、无章节时，侧边栏底部显示"创作建议"提示卡片
-- Tab 标签旁显示角色和地点数量微标
-
-### 主题与设计系统
-- **默认主题**: 深色模式（`theme: 'dark'`），通过 `.light` class 切换浅色模式
-- **CSS 变量层级**: `background` → `surface` → `elevated`，通过背景色差异替代硬边框划分层级
-- **圆角规范**: `radius-sm: 8px` / `radius-md: 12px` / `radius-lg: 16px`
-- **阴影规范**: `--shadow-card` / `--shadow-hover` / `--shadow-modal` 三级弥散阴影
-- **动效规范**: 所有交互组件使用 `transition-all duration-200 ease-out`，Button hover 增加 `scale-[1.02]`
-- **模块色标**: 音乐模块使用青蓝色系，小说模块使用紫罗兰色系
+| `/novel` | NovelListPage | 项目列表，新建创作入口 |
+| `/novel/:projectId` | HarnessPage | Agent 协作面板 |
+| `/novel/:projectId/read` | ReaderPage | 小说阅读器 |
+| `/settings` | SettingsPage | Provider 管理 + Agent 模型配置 |
 
 ## 编码规范
 
-- **Git commit 信息**：前缀用标准英文 Conventional Commits 格式（feat/fix/refactor/docs/chore 等），描述用中文，如 `feat: 增加自动保存`、`fix: 修复章节排序问题`、`refactor: 提取共享工具函数`
+- **Git commit 信息**: 前缀用标准英文 Conventional Commits 格式，描述用中文
 - **不添加注释**，除非用户明确要求
 - **前端代码风格**: 纯 JSX，无 TypeScript，无 PropTypes
-- **共享工具**: 格式化函数在 `frontend/src/utils/formatContent.js`，常量在 `frontend/src/constants/novel.js`，ID 生成用 `generateId()` from `utils/formatContent`
 - **确认弹窗**: 使用 `ConfirmDialog` 组件替代 `window.confirm()`
-- **自动保存**: 使用 `useAutoSave` hook，支持 3 秒防抖和 `beforeunload` 保护
-- **章节操作**: 使用 `useChapterActions` hook（generateChapter/continueChapter）
-- **快捷键**: 使用 `useHotkeys` hook
 
 ## 数据库 Schema
 
@@ -191,12 +87,14 @@ characters (JSON), locations (JSON), relationships (JSON), settings (JSON),
 notes (JSON), created_at, updated_at
 ```
 
-### writing_log 表
+### providers 表
 ```
-id, project_id, chapter_id, word_count, created_at
+name, display_name, protocol, chat_url, chat_model, api_key,
+enabled, thinking_enabled, reasoning_effort, thinking_budget,
+created_at, updated_at
 ```
 
-### chapter_drafts 表
+### agent_config 表
 ```
-id, project_id, chapter_id, content, word_count, version, created_at
+agent_name, provider_name, model_name
 ```

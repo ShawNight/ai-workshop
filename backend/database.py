@@ -54,6 +54,7 @@ def init_db():
 
         # 删除旧的 music_projects 表（如果存在）
         cursor.execute("DROP TABLE IF EXISTS music_projects")
+        cursor.execute("DROP TABLE IF EXISTS music_history")
         
         # 小说项目表
         cursor.execute("""
@@ -74,11 +75,12 @@ def init_db():
                 locations TEXT DEFAULT '[]',
                 relationships TEXT DEFAULT '[]',
                 settings TEXT DEFAULT '{}',
+                creation_mode TEXT DEFAULT 'assisted',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
         """)
-        
+
         # 数据库迁移：为旧表添加新列
         migrations = [
             "ALTER TABLE novel_projects ADD COLUMN synopsis TEXT DEFAULT ''",
@@ -90,6 +92,7 @@ def init_db():
             "ALTER TABLE novel_projects ADD COLUMN locations TEXT DEFAULT '[]'",
             "ALTER TABLE novel_projects ADD COLUMN relationships TEXT DEFAULT '[]'",
             "ALTER TABLE novel_projects ADD COLUMN settings TEXT DEFAULT '{}'",
+            "ALTER TABLE novel_projects ADD COLUMN creation_mode TEXT DEFAULT 'assisted'",
         ]
         for migration in migrations:
             try:
@@ -102,32 +105,12 @@ def init_db():
             conn.commit()
         except sqlite3.OperationalError:
             pass
-        
-        # 音乐历史记录表（只保存已完成的音乐）
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS music_history (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                user_description TEXT DEFAULT '',
-                prompt TEXT DEFAULT '',
-                lyrics TEXT DEFAULT '',
-                audio_file TEXT,
-                duration_ms INTEGER DEFAULT 0,
-                lrc TEXT DEFAULT '',
-                created_at TEXT NOT NULL
-            )
-        """)
 
-        # music_history 表迁移
-        music_migrations = [
-            "ALTER TABLE music_history ADD COLUMN duration_ms INTEGER DEFAULT 0",
-            "ALTER TABLE music_history ADD COLUMN lrc TEXT DEFAULT ''",
-        ]
-        for m in music_migrations:
-            try:
-                cursor.execute(m)
-            except sqlite3.OperationalError:
-                pass
+        try:
+            cursor.execute("ALTER TABLE novel_projects ADD COLUMN foreshadows TEXT DEFAULT '[]'")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         
         # 工作流表
         cursor.execute("""
@@ -168,7 +151,7 @@ def init_db():
             )
         """)
 
-        # Provider 配置表（新 schema）
+        # Provider 配置表
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS providers (
                 name TEXT PRIMARY KEY,
@@ -177,10 +160,6 @@ def init_db():
                 chat_url TEXT NOT NULL,
                 chat_model TEXT NOT NULL,
                 api_key TEXT NOT NULL DEFAULT '',
-                supports_music INTEGER NOT NULL DEFAULT 0,
-                music_url TEXT NOT NULL DEFAULT '',
-                music_model TEXT NOT NULL DEFAULT '',
-                lyrics_url TEXT NOT NULL DEFAULT '',
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -194,6 +173,43 @@ def init_db():
             )
         """)
 
+        # Provider 模型列表表（一个 Provider 可配置多个模型）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS provider_models (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_name TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                FOREIGN KEY (provider_name) REFERENCES providers(name) ON DELETE CASCADE
+            )
+        """)
+
+        # 迁移：将已有 Provider 的 chat_model 写入 provider_models
+        cursor.execute("SELECT COUNT(*) as cnt FROM provider_models")
+        if cursor.fetchone()["cnt"] == 0:
+            cursor.execute("SELECT name, chat_model FROM providers WHERE chat_model != ''")
+            for row in cursor.fetchall():
+                cursor.execute(
+                    "INSERT INTO provider_models (provider_name, model_name) VALUES (?, ?)",
+                    (row["name"], row["chat_model"])
+                )
+
+        # Agent 模型配置表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_config (
+                agent_name TEXT PRIMARY KEY,
+                provider_name TEXT NOT NULL DEFAULT '',
+                model_name TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+        # 首次启动时插入默认 Agent 配置
+        default_agents = ["meta", "planner", "writer", "critic", "editor"]
+        for agent in default_agents:
+            cursor.execute(
+                "INSERT OR IGNORE INTO agent_config (agent_name, provider_name, model_name) VALUES (?, '', '')",
+                (agent,)
+            )
+
         # providers 表迁移：新增思考模式字段
         provider_migrations = [
             "ALTER TABLE providers ADD COLUMN thinking_enabled INTEGER NOT NULL DEFAULT 0",
@@ -205,12 +221,6 @@ def init_db():
                 cursor.execute(m)
             except sqlite3.OperationalError:
                 pass
-
-        # 将 minimax 协议迁移为 openai（MiniMax 兼容标准 OpenAI 协议）
-        try:
-            cursor.execute("UPDATE providers SET protocol = 'openai' WHERE protocol = 'minimax'")
-        except Exception:
-            pass
 
         # 从旧 provider_config 表迁移数据到 provider_settings
         try:
@@ -230,28 +240,14 @@ def init_db():
             now = datetime.now().isoformat()
 
             cursor.execute("""INSERT INTO providers
-                (name, display_name, protocol, chat_url, chat_model, api_key,
-                 supports_music, enabled, created_at, updated_at)
-                VALUES (?, ?, 'openai', ?, ?, '', 0, 1, ?, ?)""",
+                (name, display_name, protocol, chat_url, chat_model, api_key, enabled, created_at, updated_at)
+                VALUES (?, ?, 'openai', ?, ?, '', 1, ?, ?)""",
                 ("deepseek", "DeepSeek",
                  "https://api.deepseek.com/chat/completions",
                  "deepseek-chat",
                  now, now))
 
-            cursor.execute("""INSERT INTO providers
-                (name, display_name, protocol, chat_url, chat_model, api_key,
-                 supports_music, music_url, music_model, lyrics_url, enabled, created_at, updated_at)
-                VALUES (?, ?, 'openai', ?, ?, '', 1, ?, ?, ?, 1, ?, ?)""",
-                ("minimax", "MiniMax",
-                 "https://api.minimaxi.com/v1/chat/completions",
-                 "MiniMax-M2.7",
-                 "https://api.minimaxi.com/v1/music_generation",
-                 "music-2.6",
-                 "https://api.minimaxi.com/v1/lyrics_generation",
-                 now, now))
-
             cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('text_provider', 'deepseek')")
-            cursor.execute("INSERT OR REPLACE INTO provider_settings (key, value) VALUES ('music_provider', 'minimax')")
 
         # 删除旧表
         cursor.execute("DROP TABLE IF EXISTS provider_config")
@@ -264,7 +260,8 @@ def init_db():
 
 def create_novel_project(project_id: str, title: str, genre: str, premise: str,
                          synopsis: str = "", target_word_count: int = 0,
-                         writing_style: str = "", cover_color: str = "#6366F1") -> dict:
+                         writing_style: str = "", cover_color: str = "#6366F1",
+                         creation_mode: str = "assisted") -> dict:
     """创建小说项目"""
     now = datetime.now().isoformat()
     with get_connection() as conn:
@@ -272,10 +269,10 @@ def create_novel_project(project_id: str, title: str, genre: str, premise: str,
         cursor.execute("""
             INSERT INTO novel_projects (id, title, genre, premise, synopsis,
                 target_word_count, current_word_count, status, writing_style,
-                cover_color, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 'planning', ?, ?, ?, ?)
+                cover_color, creation_mode, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 'planning', ?, ?, ?, ?, ?)
         """, (project_id, title, genre, premise, synopsis,
-              target_word_count, writing_style, cover_color, now, now))
+              target_word_count, writing_style, cover_color, creation_mode, now, now))
         conn.commit()
         return {
             "id": project_id,
@@ -288,6 +285,7 @@ def create_novel_project(project_id: str, title: str, genre: str, premise: str,
             "status": "planning",
             "writingStyle": writing_style,
             "coverColor": cover_color,
+            "creationMode": creation_mode,
             "outline": [],
             "chapters": [],
             "characters": [],
@@ -319,12 +317,14 @@ def get_novel_project(project_id: str) -> dict:
             "status": row["status"] if "status" in row.keys() else "planning",
             "writingStyle": row["writing_style"] if "writing_style" in row.keys() else "",
             "coverColor": row["cover_color"] if "cover_color" in row.keys() else "#6366F1",
+            "creationMode": row["creation_mode"] if "creation_mode" in row.keys() else "assisted",
             "outline": json.loads(row["outline"]),
             "chapters": json.loads(row["chapters"]),
             "characters": json.loads(row["characters"]),
             "locations": json.loads(row["locations"]) if "locations" in row.keys() else [],
             "relationships": json.loads(row["relationships"]) if "relationships" in row.keys() else [],
             "settings": json.loads(row["settings"]) if "settings" in row.keys() else {},
+            "foreshadows": json.loads(row["foreshadows"]) if "foreshadows" in row.keys() else [],
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"]
         }
@@ -350,12 +350,14 @@ def get_all_novel_projects() -> list:
                 "status": row["status"] if "status" in row.keys() else "planning",
                 "writingStyle": row["writing_style"] if "writing_style" in row.keys() else "",
                 "coverColor": row["cover_color"] if "cover_color" in row.keys() else "#6366F1",
+                "creationMode": row["creation_mode"] if "creation_mode" in row.keys() else "assisted",
                 "outline": json.loads(row["outline"]),
                 "chapters": json.loads(row["chapters"]),
                 "characters": json.loads(row["characters"]),
                 "locations": json.loads(row["locations"]) if "locations" in row.keys() else [],
                 "relationships": json.loads(row["relationships"]) if "relationships" in row.keys() else [],
                 "settings": json.loads(row["settings"]) if "settings" in row.keys() else {},
+                "foreshadows": json.loads(row["foreshadows"]) if "foreshadows" in row.keys() else [],
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"]
             })
@@ -365,19 +367,19 @@ def get_all_novel_projects() -> list:
 def update_novel_project(project_id: str, updates: dict) -> bool:
     """更新小说项目"""
     now = datetime.now().isoformat()
-    
+
     # 处理 JSON 字段
-    json_fields = ["outline", "chapters", "characters", "locations", "relationships", "settings"]
+    json_fields = ["outline", "chapters", "characters", "locations", "relationships", "settings", "foreshadows"]
     set_clauses = ["updated_at = ?"]
     values = [now]
-    
+
     for field in json_fields:
         if field in updates:
             set_clauses.append(f"{field} = ?")
             values.append(json.dumps(updates[field]))
-    
+
     # 处理普通字段
-    for field in ["title", "genre", "premise", "synopsis", "writing_style", "cover_color", "status"]:
+    for field in ["title", "genre", "premise", "synopsis", "writing_style", "cover_color", "status", "creation_mode"]:
         if field in updates:
             set_clauses.append(f"{field} = ?")
             values.append(updates[field])
@@ -638,6 +640,77 @@ def delete_workflow(workflow_id: str) -> bool:
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM workflows WHERE id = ?", (workflow_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ==================== Agent 模型配置操作 ====================
+
+def get_all_agent_configs() -> list:
+    """获取所有 Agent 的模型配置"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM agent_config ORDER BY agent_name")
+        return [{"agentName": r["agent_name"], "providerName": r["provider_name"], "modelName": r["model_name"]} for r in cursor.fetchall()]
+
+
+def get_agent_config(agent_name: str) -> dict | None:
+    """获取单个 Agent 的模型配置"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM agent_config WHERE agent_name = ?", (agent_name,))
+        row = cursor.fetchone()
+        return {"agentName": row["agent_name"], "providerName": row["provider_name"], "modelName": row["model_name"]} if row else None
+
+
+def update_agent_config(agent_name: str, provider_name: str, model_name: str) -> bool:
+    """更新单个 Agent 的模型配置"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO agent_config (agent_name, provider_name, model_name) VALUES (?, ?, ?)",
+            (agent_name, provider_name, model_name)
+        )
+        conn.commit()
+        return True
+
+
+# ==================== Provider 模型列表操作 ====================
+
+def get_provider_models(provider_name: str) -> list:
+    """获取某 Provider 的可用模型列表"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, model_name FROM provider_models WHERE provider_name = ? ORDER BY id", (provider_name,))
+        return [{"id": r["id"], "modelName": r["model_name"]} for r in cursor.fetchall()]
+
+
+def add_provider_model(provider_name: str, model_name: str) -> dict:
+    """为 Provider 添加一个可用模型"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO provider_models (provider_name, model_name) VALUES (?, ?)",
+            (provider_name, model_name)
+        )
+        conn.commit()
+        return {"id": cursor.lastrowid, "modelName": model_name}
+
+
+def update_provider_model(model_id: int, model_name: str) -> bool:
+    """更新模型名称"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE provider_models SET model_name = ? WHERE id = ?", (model_name, model_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_provider_model(model_id: int) -> bool:
+    """删除一个模型"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM provider_models WHERE id = ?", (model_id,))
         conn.commit()
         return cursor.rowcount > 0
 

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit3, Trash2, Zap, Server, Signal, SignalZero } from 'lucide-react';
+import { Plus, Edit3, Trash2, Zap, Server, Signal, SignalZero, Bot } from 'lucide-react';
 import useProviderStore from '../store/providerStore';
 import { ProviderEditModal } from '../components/common/ProviderEditModal';
+import { harnessApi } from '../api';
+import { toast } from '../components/ui/Toast';
 
 function StatusLabel({ provider }) {
   if (provider.apiKeyBroken) {
@@ -24,7 +26,6 @@ function ProviderCard({ provider, onEdit, onDelete, onTest, testing, testResult 
     <div className="rounded-2xl border border-[var(--border)] overflow-hidden hover:shadow-[var(--shadow-hover)] hover:-translate-y-0.5 transition-all duration-300 bg-[var(--surface)]">
       <div className={`h-[3px] ${statusColor}`} />
       <div className="p-5">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-[var(--primary)]/8 flex-shrink-0">
@@ -32,16 +33,10 @@ function ProviderCard({ provider, onEdit, onDelete, onTest, testing, testResult 
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
-                  {provider.displayName}
-                </span>
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[var(--border)] text-[var(--text-secondary)] flex-shrink-0">
-                  {provider.protocol}
-                </span>
+                <span className="text-sm font-semibold text-[var(--text-primary)] truncate">{provider.displayName}</span>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[var(--border)] text-[var(--text-secondary)] flex-shrink-0">{provider.protocol}</span>
               </div>
-              <div className="text-xs text-[var(--text-secondary)] mt-0.5">
-                {provider.name}
-              </div>
+              <div className="text-xs text-[var(--text-secondary)] mt-0.5">{provider.name} · {provider.chatModel}</div>
             </div>
           </div>
           <div className="flex-shrink-0 ml-3">
@@ -53,43 +48,6 @@ function ProviderCard({ provider, onEdit, onDelete, onTest, testing, testResult 
           </div>
         </div>
 
-        {/* Details */}
-        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-          <div>
-            <span className="text-[var(--text-secondary)]">模型</span>
-            <p className="font-mono text-[var(--text-primary)] mt-0.5 truncate">{provider.chatModel}</p>
-          </div>
-          <div>
-            <span className="text-[var(--text-secondary)]">API Key</span>
-            <p className="mt-0.5 truncate"><StatusLabel provider={provider} /></p>
-          </div>
-          <div className="col-span-2">
-            <span className="text-[var(--text-secondary)]">API 地址</span>
-            <p className="font-mono text-[var(--text-primary)] mt-0.5 truncate text-[11px]">{provider.chatUrl}</p>
-          </div>
-          {provider.supportsMusic && (
-            <>
-              <div>
-                <span className="text-[var(--text-secondary)]">音乐模型</span>
-                <p className="font-mono text-[var(--text-primary)] mt-0.5 truncate">{provider.musicModel || '—'}</p>
-              </div>
-              <div>
-                <span className="text-[var(--text-secondary)]">音乐支持</span>
-                <p className="mt-0.5 text-emerald-500">已启用</p>
-              </div>
-            </>
-          )}
-          {provider.thinkingEnabled && (
-            <div>
-              <span className="text-[var(--text-secondary)]">思考模式</span>
-              <p className="mt-0.5 text-[var(--primary)]">
-                已启用 ({provider.protocol === 'anthropic' ? `${provider.thinkingBudget} tokens` : provider.reasoningEffort})
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Test result */}
         {testResult?.name === provider.name && (
           <div className={`mt-4 text-xs px-3 py-2.5 rounded-lg ${
             testResult.success
@@ -100,30 +58,20 @@ function ProviderCard({ provider, onEdit, onDelete, onTest, testing, testResult 
           </div>
         )}
 
-        {/* Actions */}
         <div className="border-t border-[var(--border)] mt-4 pt-3 flex items-center gap-3">
-          <button
-            onClick={() => onTest(provider.name)}
-            disabled={testing === provider.name}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-[var(--primary)] transition-colors disabled:opacity-50"
-          >
+          <button onClick={() => onTest(provider.name)} disabled={testing === provider.name}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-[var(--primary)] transition-colors disabled:opacity-50">
             <Zap className={`h-3.5 w-3.5 ${testing === provider.name ? 'animate-pulse' : ''}`} />
             {testing === provider.name ? '测试中...' : '测试连接'}
           </button>
-          <button
-            onClick={() => onEdit(provider)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-[var(--primary)] transition-colors"
-          >
-            <Edit3 className="h-3.5 w-3.5" />
-            编辑
+          <button onClick={() => onEdit(provider)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-[var(--primary)] transition-colors">
+            <Edit3 className="h-3.5 w-3.5" />编辑
           </button>
           <div className="flex-1" />
-          <button
-            onClick={() => onDelete(provider.name)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:bg-red-50 dark:hover:bg-red-900/15 hover:text-red-500 transition-colors"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            删除
+          <button onClick={() => onDelete(provider.name)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:bg-red-50 dark:hover:bg-red-900/15 hover:text-red-500 transition-colors">
+            <Trash2 className="h-3.5 w-3.5" />删除
           </button>
         </div>
       </div>
@@ -131,19 +79,90 @@ function ProviderCard({ provider, onEdit, onDelete, onTest, testing, testResult 
   );
 }
 
+function AgentModelSelect({ agent, config, providers, onUpdate }) {
+  const currentProvider = config?.providerName || '';
+  const currentModel = config?.modelName || '';
+  const [provider, setProvider] = useState(currentProvider);
+  const [model, setModel] = useState(currentModel);
+
+  const selectedProvider = providers.find(p => p.name === provider);
+  const availableModels = selectedProvider?.models || [];
+
+  const handleProviderChange = (p) => {
+    setProvider(p);
+    setModel('');  // 换 Provider 时清空模型选择
+  };
+
+  const handleSave = async () => {
+    try {
+      await onUpdate(agent.name, provider, model);
+      toast.success(`${agent.label} 配置已保存`);
+    } catch {
+      toast.error('保存失败');
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-[var(--elevated)] border border-[var(--border)]">
+      <div className="flex-shrink-0 text-xl">{agent.icon}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-[var(--text-primary)]">{agent.label}</div>
+        <div className="text-xs text-[var(--text-secondary)]">{agent.description}</div>
+      </div>
+      <select
+        value={provider}
+        onChange={(e) => handleProviderChange(e.target.value)}
+        className="w-32 h-9 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 text-xs text-[var(--text-primary)]"
+      >
+        <option value="">选择 Provider</option>
+        {providers.map(p => (
+          <option key={p.name} value={p.name}>{p.displayName}</option>
+        ))}
+      </select>
+      <select
+        value={model}
+        onChange={(e) => setModel(e.target.value)}
+        disabled={!provider}
+        className="w-36 h-9 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 text-xs text-[var(--text-primary)] disabled:opacity-40"
+      >
+        <option value="">{provider ? (availableModels.length === 0 ? '无可用模型' : '选择模型') : '先选 Provider'}</option>
+        {availableModels.map((m) => (
+          <option key={m.id} value={m.modelName}>{m.modelName}</option>
+        ))}
+      </select>
+      <button
+        onClick={handleSave}
+        disabled={!provider}
+        className="flex-shrink-0 px-3 h-9 rounded-lg text-xs font-medium bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 disabled:opacity-30 transition-colors"
+      >
+        保存
+      </button>
+    </div>
+  );
+}
+
 export function SettingsPage() {
-  const {
-    providers, textProvider, musicProvider,
-    loading, fetchProviders, setTextProvider, setMusicProvider,
-    deleteProvider, testProvider,
-  } = useProviderStore();
+  const { providers, loading, fetchProviders, deleteProvider, testProvider } = useProviderStore();
   const [editModal, setEditModal] = useState(null);
   const [testing, setTesting] = useState(null);
   const [testResult, setTestResult] = useState(null);
+  const [agentConfigs, setAgentConfigs] = useState([]);
+  const [agentsInfo, setAgentsInfo] = useState({});
 
-  useEffect(() => { fetchProviders(); }, []);
+  useEffect(() => {
+    fetchProviders();
+    loadAgentConfig();
+  }, []);
 
-  const musicProviders = providers.filter(p => p.supportsMusic);
+  const loadAgentConfig = async () => {
+    try {
+      const res = await harnessApi.getAgentConfig();
+      if (res.data.success) {
+        setAgentConfigs(res.data.configs);
+        setAgentsInfo(res.data.agentsInfo);
+      }
+    } catch {}
+  };
 
   const handleDelete = async (name) => {
     if (!confirm(`确定删除 ${name}？`)) return;
@@ -163,85 +182,61 @@ export function SettingsPage() {
     fetchProviders();
   };
 
+  const handleAgentConfigUpdate = async (agentName, providerName, modelName) => {
+    await harnessApi.updateAgentConfig({ agentName, providerName, modelName });
+    loadAgentConfig();
+  };
+
   return (
     <div className="max-w-3xl mx-auto space-y-8">
       <div>
         <h2 className="text-2xl font-bold text-[var(--text-primary)]">设置</h2>
-        <p className="text-sm text-[var(--text-secondary)] mt-1">管理 AI 服务提供商配置</p>
+        <p className="text-sm text-[var(--text-secondary)] mt-1">管理 AI 模型与 Agent 配置</p>
       </div>
 
-      {/* Active provider selection */}
-      {providers.length > 0 && (
-        <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-[var(--shadow-card)]">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">当前服务</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">文本生成</label>
-              <select
-                value={textProvider}
-                onChange={(e) => setTextProvider(e.target.value)}
-                className="w-full h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)] transition-all duration-200 appearance-none"
-                style={{ backgroundImage: 'none' }}
-              >
-                <option value="" className="bg-[var(--surface)] text-[var(--text-primary)]">未选择</option>
-                {providers.map(p => (
-                  <option key={p.name} value={p.name} className="bg-[var(--surface)] text-[var(--text-primary)]">
-                    {p.displayName}{p.apiKeyBroken ? ' (Key 异常)' : !p.apiKeySet ? ' (未配置)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {musicProviders.length > 0 && (
-              <div>
-                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">音乐生成</label>
-                <select
-                  value={musicProvider}
-                  onChange={(e) => setMusicProvider(e.target.value)}
-                  className="w-full h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)] transition-all duration-200"
-                >
-                  <option value="">未选择</option>
-                  {musicProviders.map(p => (
-                    <option key={p.name} value={p.name}>
-                      {p.displayName}{p.apiKeyBroken ? ' (Key 异常)' : !p.apiKeySet ? ' (未配置)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
+      {/* Agent Model Configuration */}
+      <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-[var(--shadow-card)]">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+          <Bot className="h-4 w-4 text-violet-400" />
+          Agent 模型配置
+        </h3>
+        <p className="text-xs text-[var(--text-secondary)] -mt-2">为每个创作 Agent 指定独立的 AI 模型。先在 Provider 中配置可用模型，再在此分配。</p>
+        <div className="space-y-2">
+          {Object.entries(agentsInfo).map(([name, info]) => {
+            const config = agentConfigs.find(c => c.agentName === name);
+            return (
+              <AgentModelSelect
+                key={name}
+                agent={{ name, label: info.label, icon: info.icon, description: info.description }}
+                config={config}
+                providers={providers}
+                onUpdate={handleAgentConfigUpdate}
+              />
+            );
+          })}
+        </div>
+      </section>
 
       {/* Provider list */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Provider 列表</h3>
-          <button
-            onClick={() => { setTestResult(null); setEditModal({ mode: 'create' }); }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] transition-colors shadow-sm"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            添加 Provider
+          <button onClick={() => { setTestResult(null); setEditModal({ mode: 'create' }); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] transition-colors shadow-sm">
+            <Plus className="h-3.5 w-3.5" />添加 Provider
           </button>
         </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-12 text-[var(--text-secondary)]">
-            <div className="h-5 w-5 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mr-3" />
-            加载中...
+            <div className="h-5 w-5 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mr-3" />加载中...
           </div>
         ) : (
           <div className="grid gap-4">
             {providers.map(p => (
-              <ProviderCard
-                key={p.name}
-                provider={p}
-                testing={testing}
-                testResult={testResult}
+              <ProviderCard key={p.name} provider={p} testing={testing} testResult={testResult}
                 onEdit={(prov) => { setTestResult(null); setEditModal({ mode: 'edit', provider: prov }); }}
-                onDelete={handleDelete}
-                onTest={handleTest}
-              />
+                onDelete={handleDelete} onTest={handleTest} />
             ))}
             {providers.length === 0 && (
               <div className="py-16 text-center rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)]/50">
@@ -249,12 +244,8 @@ export function SettingsPage() {
                   <Server className="h-6 w-6 text-[var(--text-secondary)]/40" />
                 </div>
                 <p className="text-sm text-[var(--text-secondary)]">暂无 Provider</p>
-                <button
-                  onClick={() => setEditModal({ mode: 'create' })}
-                  className="mt-3 text-xs font-medium text-[var(--primary)] hover:underline"
-                >
-                  添加第一个
-                </button>
+                <button onClick={() => setEditModal({ mode: 'create' })}
+                  className="mt-3 text-xs font-medium text-[var(--primary)] hover:underline">添加第一个</button>
               </div>
             )}
           </div>
@@ -262,11 +253,7 @@ export function SettingsPage() {
       </section>
 
       {editModal && (
-        <ProviderEditModal
-          mode={editModal.mode}
-          provider={editModal.provider}
-          onClose={handleEditClose}
-        />
+        <ProviderEditModal mode={editModal.mode} provider={editModal.provider} onClose={handleEditClose} />
       )}
     </div>
   );

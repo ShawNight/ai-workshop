@@ -1,15 +1,44 @@
-import { Trash2, Edit3, Bookmark, Clock } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Trash2, Edit3, Bookmark, Clock, Sparkles } from 'lucide-react';
 import { Card, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { cn } from '../../lib/utils';
 
-export function ProjectCard({ project, onSelect, onDelete }) {
+export function ProjectCard({ project, onSelect, onDelete, onRename }) {
   const chapters = project.chapters || [];
   const characters = project.characters || [];
   const wordCount = project.currentWordCount || 0;
   const targetWords = project.targetWordCount || 0;
   const progress = targetWords > 0 ? Math.min(100, Math.round((wordCount / targetWords) * 100)) : 0;
   const lastUpdated = project.updatedAt || project.createdAt;
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(project.title || '');
+  const renameRef = useRef(null);
+
+  useEffect(() => {
+    if (isRenaming && renameRef.current) {
+      renameRef.current.focus();
+      renameRef.current.select();
+    }
+  }, [isRenaming]);
+
+  const handleRenameConfirm = () => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== project.title) {
+      onRename?.(project.id, trimmed);
+    }
+    setIsRenaming(false);
+  };
+
+  const handleRenameKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleRenameConfirm();
+    } else if (e.key === 'Escape') {
+      setRenameValue(project.title || '');
+      setIsRenaming(false);
+    }
+  };
 
   return (
     <Card className="hover:shadow-[var(--shadow-hover)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer group h-full border border-[var(--border)]">
@@ -22,11 +51,33 @@ export function ProjectCard({ project, onSelect, onDelete }) {
             <Bookmark className="h-6 w-6 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm group-hover:text-[var(--primary)] transition-colors truncate">
-              {project.title}
-            </h3>
+            {isRenaming ? (
+              <input
+                ref={renameRef}
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={handleRenameConfirm}
+                onKeyDown={handleRenameKeyDown}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full text-sm font-semibold bg-[var(--surface)] border border-[var(--primary)]/50 rounded px-1.5 py-0.5 focus:outline-none"
+              />
+            ) : (
+              <h3
+                className="font-semibold text-sm group-hover:text-[var(--primary)] transition-colors truncate cursor-text"
+                onDoubleClick={(e) => { e.stopPropagation(); setRenameValue(project.title || ''); setIsRenaming(true); }}
+                title="双击重命名"
+              >
+                {project.title}
+              </h3>
+            )}
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs text-[var(--text-secondary)]">{project.genre}</span>
+              {project.creationMode === 'auto' && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 font-medium flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  全自动
+                </span>
+              )}
               {project.status && project.status !== 'planning' && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] font-medium">
                   {statusLabel(project.status)}

@@ -10,4 +10,9 @@ export const providerApi = {
   getProtocols: () => api.get('/provider/protocols'),
   getConfig: () => api.get('/provider/config'),
   updateConfig: (data) => api.put('/provider/config', data),
+  // 模型管理
+  getModels: (name) => api.get(`/provider/providers/${name}/models`),
+  addModel: (name, data) => api.post(`/provider/providers/${name}/models`, data),
+  updateModel: (name, modelId, data) => api.put(`/provider/providers/${name}/models/${modelId}`, data),
+  deleteModel: (name, modelId) => api.delete(`/provider/providers/${name}/models/${modelId}`),
 };

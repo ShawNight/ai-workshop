@@ -2,25 +2,12 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: '/api',
+  timeout: 300000,  // 5 分钟总超时
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-export const musicApi = {
-  generatePrompt: (data) => api.post('/music/prompt', data),
-  generateLyrics: (data) => api.post('/music/lyrics', data),
-  modifyLyrics: (data) => api.post('/music/lyrics/modify', data),
-  generateMusic: (data) => api.post('/music/generate', data),
-  getStatus: (jobId) => api.get(`/music/status/${jobId}`),
-  download: (filename) => api.get(`/music/download/${filename}`, { responseType: 'blob' }),
-  chat: (data) => api.post('/music/chat', data),
-  getHistory: () => api.get('/music/history'),
-  deleteHistory: (id) => api.delete(`/music/history/${id}`),
-  exportForNetEase: (data) => api.post('/music/export/netease', data, { responseType: 'blob' }),
-  checkMusicApi: () => api.get('/music/check'),
-  generateLrc: (data) => api.post('/music/lrc', data)
-};
 
 export const novelApi = {
   getProjects: () => api.get('/novel/projects'),
@@ -51,6 +38,22 @@ export const novelApi = {
   autoChapter: (data) => api.post('/novel/auto-chapter', data),
   qualityCheck: (data) => api.post('/novel/quality-check', data),
   reviseDesign: (data) => api.post('/novel/revise-design', data),
+  reviseBlock: (data) => api.post('/novel/revise-block', data),
+};
+
+export const harnessApi = {
+  start: (data) => api.post('/harness/start', data),
+  getState: (projectId) => api.get(`/harness/state/${projectId}`),
+  advance: (data) => api.post('/harness/advance', data),
+  autoAdvance: (data) => api.post('/harness/auto', data),
+  reset: (projectId) => api.post(`/harness/reset/${projectId}`),
+  intervene: (data) => api.post('/harness/intervene', data),
+  approve: (data) => api.post('/harness/approve', data),
+  pause: (data) => api.post('/harness/pause', data),
+  resume: (data) => api.post('/harness/resume', data),
+  getAgentConfig: () => api.get('/harness/agent-config'),
+  updateAgentConfig: (data) => api.put('/harness/agent-config', data),
+  refineMeta: (data) => api.post('/harness/refine-meta', data),
 };
 
 export default api;

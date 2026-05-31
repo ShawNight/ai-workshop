@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Music, BookOpen, Home, Sun, Moon, Menu, X, Settings } from 'lucide-react';
+import { BookOpen, Sun, Moon, Menu, X, Settings } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../store/themeStore';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const navItems = [
-  { to: '/', icon: Home, label: '首页' },
-  { to: '/music', icon: Music, label: '音乐创作', accent: 'text-cyan-400' },
   { to: '/novel', icon: BookOpen, label: '小说写作', accent: 'text-violet-400' },
 ];
 
@@ -38,9 +36,9 @@ export function Sidebar() {
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-[var(--border)]">
             <h1 className="text-xl font-bold bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)] bg-clip-text text-transparent">
-              AI 个人工作坊
+              AI 小说工坊
             </h1>
-            <p className="text-xs text-[var(--text-secondary)] mt-1 tracking-wide">AI Personal Workshop</p>
+            <p className="text-xs text-[var(--text-secondary)] mt-1 tracking-wide">AI Novel Workshop</p>
           </div>
 
           <nav className="flex-1 p-3 space-y-1">

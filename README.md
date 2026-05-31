@@ -1,46 +1,29 @@
-# AI 个人工作坊
+# AI 小说工坊
 
-一个创意 AI 工作坊 Web 应用，支持音乐创作和小说写作。
+一个 AI 多 Agent 协作小说创作 Web 应用。4 个 AI Agent 角色（策划师/写手/评论家/编辑）按状态机流转协作，从创意到完稿全自动完成。
 
 ## 功能特性
 
-### AI 音乐创作
-- 基于主题的歌词生成
-- 多轮对话优化歌词
-- 调用 MiniMax API 生成音乐
-- 在线试听和下载
-- LRC 歌词同步 — AI 生成时间戳，歌词逐行高亮
-- **歌词时间戳人工校准** — 支持全局偏移和逐行精校，校准数据持久化保存，导出到第三方平台使用精确时间戳
+### 多 Agent 协作创作
+- **🧠 策划师 (Planner)** — 从种子创意生成完整设计蓝图：分卷大纲、角色设定（含成长弧线）、世界规则、伏笔表
+- **✍️ 写手 (Writer)** — 根据设计文档逐章创作，保持文风一致，自然融入伏笔
+- **🔍 评论家 (Critic)** — 审查章节质量：角色一致性、世界规则遵守、剧情连贯度、节奏控制、文笔质量
+- **✨ 编辑 (Editor)** — 润色语言表达，修正语法问题，优化文学性和流畅度
+- **Agent Board 可视化** — 实时查看每个 Agent 的工作状态和流转
+- **活动日志** — 完整的 Agent 协作记录
 
-### AI 小说写作
-- **项目管理** — 创建/编辑/删除项目，封面色块、字数进度条、状态追踪
-- **AI 生成大纲** — 自动生成故事大纲；追加章节时先输入剧情走向，AI 生成 3 种方向方案供选择编辑后再生成
-- **富文本编辑器** — TipTap 驱动的编辑器，支持加粗/斜体/标题/撤销重做/一键排版
-- **AI 生成章节** — 基于大纲、角色设定、关系图智能生成完整章节
-- **AI 续写** — 从断点自然延续，保持文风一致
-- **AI 改写** — 选中文字后 AI 优化文笔，保持角色人设
-- **角色管理** — 创建角色，AI 自动生成性格特征/外貌描述/背景故事；AI 批量生成 1-8 个角色并审阅采纳；内联编辑所有字段
-- **SVG 角色关系图** — 可视化角色关系网络，8 种关系类型
-- **世界观构建** — 地点管理；AI 批量生成地点；AI 根据名称生成描述；内联编辑
-- **AI 深入探讨** — 每个角色/地点可打开 ChatPanel，AI 返回更新建议
-- **写作统计** — 总字数/进度/每章分布/项目信息
-- **版本历史** — 自动保存章节草稿，随时查看和恢复历史版本
-- **头脑风暴** — AI 根据想法生成 3 个创作方向，一键采用
-- **全屏写作** — 专注模式，无干扰写作体验
-- **导出** — TXT/Markdown 双格式，可选包含目录/大纲/角色/地点
-- **自动保存** — 2 秒防抖自动保存，防止内容丢失
-
-### 全自动小说创作 Harness
-- **种子输入** — 用户只需提供一句话创意，AI 自动完成其余所有工作
-- **设计蓝图** — AI 自动生成完整故事架构：分卷大纲、角色弧线、世界规则、伏笔表
-- **对话式修改** — 用户可通过对话方式修改设计文档（如"把反派改成主角的哥哥"）
-- **双模式** — 手动创作模式和全自动 Harness 模式并存，满足不同用户需求
+### 特色功能
+- **Agent 模型配置** — 每个 Agent 可独立指定 LLM Provider 和模型
+- **设计蓝图预览** — 4 个 Tab 查看大纲、角色、世界规则、伏笔
+- **精美阅读界面** — 目录导航、章节切换、沉浸式阅读体验
+- **项目管理** — 创建/删除/重命名项目，封面色块
+- **单步/自动运行** — 支持手动单步推进或全自动完成
 
 ## 技术栈
 
-- **前端**: React 19 + Vite, TailwindCSS, Framer Motion, Zustand, TipTap, react-router-dom v7
-- **后端**: Python Flask + SQLite
-- **API**: MiniMax Chat Completions API (M2.7 模型)
+- **前端**: React 19 + Vite, TailwindCSS, Framer Motion, Zustand, react-router-dom v7
+- **后端**: Python Flask + SQLite, 多 Agent 状态机引擎
+- **LLM**: 多 Provider 支持，每个 Agent 可独立配置模型
 
 ## 快速开始
 
@@ -63,11 +46,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. 配置 API Key：
-```bash
-cp backend/.env.example backend/.env
-# 编辑 backend/.env，填入你的 LLM_API_KEY
-```
+3. 配置 API Key（至少一个 Provider）：
+   - 启动应用后，在前端「设置」页面添加 Provider 并配置 API Key
+   - 或在 `backend/.env` 设置 `LLM_API_KEY`
 
 ### 开发
 
@@ -77,70 +58,41 @@ cp backend/.env.example backend/.env
 ./run.sh status    # 查看服务状态
 ```
 
-或手动启动（分两个终端）：
-
-```bash
-# 终端 1: 后端
-cd backend && source .venv/bin/activate && python app.py
-# → http://localhost:3001
-
-# 终端 2: 前端
-cd frontend && npm run dev
-# → http://localhost:5173
-```
-
-### MiniMax API 配置
-
-在 `backend/.env` 文件中配置：
-
-```
-LLM_API_KEY=your_api_key_here
-LLM_CHAT_URL=https://api.minimaxi.com/v1/chat/completions
-LLM_CHAT_MODEL=MiniMax-M2.7
-```
-
-> 未配置 API Key 时，小说模块会自动使用内置中文示例数据，不影响功能体验。
-
 ## 项目结构
 
 ```
 ai-workshop/
-├── frontend/
+├── frontend/                     # React 前端
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── novel/           # 小说模块组件
-│   │   │   │   ├── tabs/        # 大纲/角色/世界观/设定/统计/导出 Tab
-│   │   │   │   ├── AppendOutlineModal.jsx  # 大纲方向引导弹窗
-│   │   │   │   ├── ChapterEditor.jsx      # TipTap 富文本编辑器
-│   │   │   │   ├── RelationshipGraph.jsx  # SVG 角色关系图
-│   │   │   │   ├── RelationshipEditor.jsx # 关系编辑器
-│   │   │   │   ├── VersionHistory.jsx     # 版本历史面板
-│   │   │   │   ├── BrainstormModal.jsx    # 头脑风暴弹窗
-│   │   │   │   ├── OutlineNode.jsx        # 递归大纲节点
-│   │   │   │   ├── ProjectCard.jsx        # 项目卡片
-│   │   │   │   ├── StatsPanel.jsx         # 写作统计面板
-│   │   │   │   └── ...
-│   │   │   ├── music/           # 音乐模块组件
-│   │   │   └── ui/              # shadcn/ui 基础组件 (Button/Card/Input/Modal/Select/Toast/Progress/EmptyState/Skeleton)
-│   │   ├── pages/               # 页面组件
-│   │   ├── store/               # Zustand 状态管理
-│   │   ├── api/                 # API 模块
-│   │   └── lib/                 # 工具函数
+│   │   │   ├── novel/            # Agent Board / ActivityLog / 预览面板
+│   │   │   ├── common/           # Layout / ProviderEditModal
+│   │   │   └── ui/               # 基础组件 (Button/Card/Input/Modal/Select/Toast)
+│   │   ├── pages/
+│   │   │   ├── NovelListPage     # 项目列表
+│   │   │   ├── HarnessPage       # Agent 协作面板
+│   │   │   ├── ReaderPage        # 小说阅读器
+│   │   │   └── SettingsPage      # Provider + Agent 模型配置
+│   │   ├── store/                # Zustand 状态管理
+│   │   └── api/                  # API 模块 (novelApi, harnessApi, providerApi)
 │   └── ...
 ├── backend/
-│   ├── app.py                   # Flask 主应用
-│   ├── config.py                # 配置管理
-│   ├── database.py              # SQLite 数据库层
+│   ├── agents/                   # 多 Agent 协作引擎
+│   │   ├── __init__.py           # Orchestrator 状态机
+│   │   ├── state.py              # StoryState 共享状态模型
+│   │   ├── planner.py            # 策划师 Agent
+│   │   ├── writer.py             # 写手 Agent
+│   │   ├── critic.py             # 评论家 Agent
+│   │   └── editor.py             # 编辑 Agent
 │   ├── routes/
-│   │   ├── novel.py             # 小说 API 路由 (18 个端点)
-│   │   ├── music.py             # 音乐 API 路由
-│   │   └── export.py            # 导出 API 路由
-│   ├── prompts/                 # Jinja2 提示词模板（与路由代码分离）
-│   │   ├── music/               # 音乐相关提示词 (4 个模板)
-│   │   └── novel/               # 小说相关提示词 (15 个模板)
-│   ├── data/                    # 数据库文件
-│   └── uploads/                 # 音频文件
-└── AGENTS.md                    # Agent 开发指南
+│   │   ├── novel.py              # 项目 CRUD + Harness 端点
+│   │   ├── harness.py            # 多 Agent 协作控制 API
+│   │   └── provider.py           # Provider 配置管理
+│   ├── providers/                # LLM Provider 抽象层
+│   ├── prompts/novel/            # Agent 提示词模板
+│   ├── database.py               # SQLite 数据层
+│   └── app.py                    # Flask 入口
+└── AGENTS.md                     # Agent 开发指南
 ```
 
 ## 许可证

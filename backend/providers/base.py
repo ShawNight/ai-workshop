@@ -11,10 +11,6 @@ class ProviderConfig:
     chat_url: str
     api_key: str
     chat_model: str
-    supports_music: bool = False
-    music_url: str = ""
-    music_model: str = ""
-    lyrics_url: str = ""
     enabled: bool = True
     thinking_enabled: bool = False
     reasoning_effort: str = "high"       # OpenAI: "high" / "max"

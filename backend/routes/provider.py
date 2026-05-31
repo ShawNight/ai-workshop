@@ -3,11 +3,15 @@ import requests as http_requests
 from flask import Blueprint, request, jsonify
 from providers import (
     get_all_providers, get_provider, get_current_text_provider,
-    get_current_music_provider, set_provider_config, reload_providers,
+    set_provider_config, reload_providers,
 )
 from providers.db import (
     db_get_all_providers, db_get_provider, db_create_provider,
     db_update_provider, db_delete_provider,
+)
+from database import (
+    get_provider_models, add_provider_model,
+    update_provider_model, delete_provider_model,
 )
 from providers.protocols import PROTOCOLS
 from config import get_proxies
@@ -73,11 +77,8 @@ def delete_provider(name):
     """删除 provider"""
     # 检查是否是当前活跃的 provider
     text_provider = get_current_text_provider()
-    music_provider = get_current_music_provider()
     if name == text_provider:
         set_provider_config("text_provider", "")
-    if name == music_provider:
-        set_provider_config("music_provider", "")
 
     success = db_delete_provider(name)
     if not success:
@@ -148,11 +149,9 @@ def list_protocols():
 def get_config():
     """获取当前 provider 选择"""
     text_provider = get_current_text_provider()
-    music_provider = get_current_music_provider()
 
     providers = get_all_providers()
     text_provider_info = None
-    music_provider_info = None
 
     if text_provider and text_provider in providers:
         p = providers[text_provider]
@@ -162,21 +161,10 @@ def get_config():
             "chatModel": p.chat_model,
         }
 
-    if music_provider and music_provider in providers:
-        p = providers[music_provider]
-        music_provider_info = {
-            "name": p.name,
-            "displayName": p.display_name,
-            "chatModel": p.chat_model,
-            "musicModel": p.music_model,
-        }
-
     return jsonify({
         "success": True,
         "textProvider": text_provider,
-        "musicProvider": music_provider,
         "textProviderInfo": text_provider_info,
-        "musicProviderInfo": music_provider_info,
     })
 
 
@@ -193,14 +181,58 @@ def update_config():
             return jsonify({"success": False, "error": f"Provider '{name}' 不存在"}), 400
         set_provider_config("text_provider", name)
 
-    if "musicProvider" in data:
-        name = data["musicProvider"]
-        try:
-            p = get_provider(name)
-        except KeyError:
-            return jsonify({"success": False, "error": f"Provider '{name}' 不存在"}), 400
-        if not p.supports_music:
-            return jsonify({"success": False, "error": f"{p.display_name} 不支持音乐生成"}), 400
-        set_provider_config("music_provider", name)
-
     return jsonify({"success": True, "message": "配置已更新"})
+
+
+# ==================== Provider 模型管理 ====================
+
+@provider_bp.route("/providers/<name>/models", methods=["GET"])
+def list_models(name):
+    """获取某 Provider 的可用模型列表"""
+    try:
+        models = get_provider_models(name)
+        return jsonify({"success": True, "models": models})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@provider_bp.route("/providers/<name>/models", methods=["POST"])
+def create_model(name):
+    """为 Provider 添加一个可用模型"""
+    data = request.get_json()
+    model_name = (data.get("modelName") or "").strip()
+    if not model_name:
+        return jsonify({"success": False, "error": "模型名称不能为空"}), 400
+    try:
+        model = add_provider_model(name, model_name)
+        return jsonify({"success": True, "model": model})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@provider_bp.route("/providers/<name>/models/<int:model_id>", methods=["PUT"])
+def update_model(name, model_id):
+    """更新模型名称"""
+    data = request.get_json()
+    model_name = (data.get("modelName") or "").strip()
+    if not model_name:
+        return jsonify({"success": False, "error": "模型名称不能为空"}), 400
+    try:
+        success = update_provider_model(model_id, model_name)
+        if success:
+            return jsonify({"success": True, "message": "已更新"})
+        return jsonify({"success": False, "error": "模型不存在"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@provider_bp.route("/providers/<name>/models/<int:model_id>", methods=["DELETE"])
+def delete_model(name, model_id):
+    """删除一个模型"""
+    try:
+        success = delete_provider_model(model_id)
+        if success:
+            return jsonify({"success": True, "message": "已删除"})
+        return jsonify({"success": False, "error": "模型不存在"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500

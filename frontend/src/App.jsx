@@ -1,11 +1,8 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Sidebar } from './components/common/Layout';
 import { ToastContainer } from './components/ui/Toast';
-import { HomePage } from './pages/HomePage';
-import { MusicPage } from './pages/MusicPage';
 import { NovelPage } from './pages/NovelPage';
-import { AutoNovelPage } from './pages/AutoNovelPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useThemeStore } from './store/themeStore';
 
@@ -30,9 +27,7 @@ function App() {
         <main className="md:pl-64 min-h-screen">
           <div className="p-4 md:p-8 pt-16 md:pt-8">
             <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/music" element={<MusicPage />} />
-              <Route path="/novel/auto" element={<AutoNovelPage />} />
+              <Route path="/" element={<Navigate to="/novel" replace />} />
               <Route path="/novel/*" element={<NovelPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>

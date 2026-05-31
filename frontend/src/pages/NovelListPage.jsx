@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Plus, Sparkles } from 'lucide-react';
+import { BookOpen, Plus } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { toast } from '../components/ui/Toast';
 import { novelApi } from '../api';
+import { harnessApi } from '../api';
 import { useNovelStore } from '../store/novelStore';
 import { ProjectCard } from '../components/novel/ProjectCard';
 import { CreateProjectModal } from '../components/novel/CreateProjectModal';
@@ -48,6 +49,22 @@ export function NovelListPage() {
     }
   };
 
+  const handleStartHarness = async (seed, genre, style, title, coverColor, synopsis, targetWords) => {
+    try {
+      const res = await harnessApi.start({
+        seed, genre, style, title, coverColor, synopsis, targetWords,
+      });
+      if (res.data.success) {
+        addProject(res.data.project);
+        setCurrentProject(res.data.project);
+        toast.success('项目创建成功！');
+        navigate(`/novel/${res.data.project.id}`);
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.error || '启动失败');
+    }
+  };
+
   const handleSelect = (project) => {
     setCurrentProject(project);
     navigate(`/novel/${project.id}`);
@@ -63,26 +80,30 @@ export function NovelListPage() {
     }
   };
 
+  const handleRename = async (id, newTitle) => {
+    try {
+      await novelApi.updateProject(id, { title: newTitle });
+      useNovelStore.getState().updateProject(id, { title: newTitle });
+      toast.success('已重命名');
+    } catch {
+      toast.error('重命名失败');
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-violet-400" />
-            AI 小说写作
+            AI 小说工坊
           </h1>
-          <p className="text-[var(--text-secondary)] text-sm mt-1">智能生成大纲、章节内容与角色设定</p>
+          <p className="text-[var(--text-secondary)] text-sm mt-1">多 Agent 协作，从创意到完稿</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => navigate('/novel/auto')}>
-            <Sparkles className="h-4 w-4" />
-            全自动创作
-          </Button>
-          <Button onClick={() => setIsCreating(true)}>
-            <Plus className="h-4 w-4" />
-            辅助创作
-          </Button>
-        </div>
+        <Button onClick={() => setIsCreating(true)}>
+          <Plus className="h-4 w-4" />
+          新建创作
+        </Button>
       </div>
 
       {isLoading ? (
@@ -99,25 +120,20 @@ export function NovelListPage() {
               project={project}
               onSelect={handleSelect}
               onDelete={handleDelete}
+              onRename={handleRename}
             />
           ))}
         </div>
       ) : (
         <EmptyState
           icon={BookOpen}
-          title="还没有小说项目"
-          description="选择一种方式开始你的创作之旅"
+          title="开始你的第一部小说"
+          description="只需输入一个创意，AI Agent 团队将协作完成从策划到写作的全部工作"
           action={
-            <div className="flex items-center gap-3">
-                <Button variant="outline" onClick={() => navigate('/novel/auto')}>
-                  <Sparkles className="h-4 w-4" />
-                  全自动创作
-                </Button>
-                <Button onClick={() => setIsCreating(true)}>
-                  <Plus className="h-4 w-4" />
-                  辅助创作
-                </Button>
-            </div>
+            <Button onClick={() => setIsCreating(true)}>
+              <Plus className="h-4 w-4" />
+              新建创作
+            </Button>
           }
         />
       )}
@@ -126,6 +142,7 @@ export function NovelListPage() {
         isOpen={isCreating}
         onClose={() => setIsCreating(false)}
         onCreate={handleCreate}
+        onStartHarness={handleStartHarness}
       />
     </div>
   );

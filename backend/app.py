@@ -8,10 +8,9 @@ load_dotenv()
 # 导入数据库模块（会自动初始化数据库）
 import database
 
-from routes.music import music_bp
 from routes.novel import novel_bp
-from routes.export import export_bp
 from routes.provider import provider_bp
+from routes.harness import harness_bp
 
 app = Flask(__name__)
 CORS(app)
@@ -19,10 +18,9 @@ CORS(app)
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-app.register_blueprint(music_bp, url_prefix='/api/music')
 app.register_blueprint(novel_bp, url_prefix='/api/novel')
-app.register_blueprint(export_bp, url_prefix='/api/music/export')
 app.register_blueprint(provider_bp, url_prefix='/api/provider')
+app.register_blueprint(harness_bp, url_prefix='/api')
 
 @app.route('/api/health')
 def health():

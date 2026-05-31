@@ -155,6 +155,34 @@ html {
   text-indent: 0;
 }
 
+/* Reader themes */
+.reader-theme-light {
+  --reader-bg: #FFFFFF;
+  --reader-text: #1a1a1a;
+  --reader-text-secondary: #666666;
+  --reader-border: #e5e5e5;
+  --reader-surface: #f8f8f8;
+  --reader-highlight: rgba(99, 102, 241, 0.1);
+}
+
+.reader-theme-dark {
+  --reader-bg: #1a1a2e;
+  --reader-text: #e0e0e0;
+  --reader-text-secondary: #999999;
+  --reader-border: #333355;
+  --reader-surface: #16213e;
+  --reader-highlight: rgba(129, 140, 248, 0.15);
+}
+
+.reader-theme-sepia {
+  --reader-bg: #f4ecd8;
+  --reader-text: #5b4636;
+  --reader-text-secondary: #8b7355;
+  --reader-border: #d4c5a9;
+  --reader-surface: #ede0c8;
+  --reader-highlight: rgba(139, 115, 85, 0.1);
+}
+
 /* 深色模式下拉选项背景 */
 html:not(.light) select option,
 .dark select option {
