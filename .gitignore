@@ -40,3 +40,4 @@ Thumbs.db
 
 # OpenCode local settings
 .opencode/
+.reasonix/
