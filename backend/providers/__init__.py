@@ -6,7 +6,7 @@ import re
 import json
 import requests
 from providers.base import ProviderConfig, LLMResponse
-from providers.protocols import PROTOCOLS
+from providers.protocols import PROTOCOLS, get_protocol
 from config import get_proxies
 
 # 思考标签清理（兜底处理部分模型内联思维链）
@@ -105,9 +105,8 @@ def _build_llm_request(messages, temperature=0.7, max_tokens=None, timeout=None,
         timeout = max(120, max_tokens // 20 + 30)
 
     # 通过协议处理器构建请求
-    protocol = PROTOCOLS.get(provider.protocol)
-    if not protocol:
-        return LLMResponse(success=False, error=f"未知协议: {provider.protocol}")
+    from providers.protocols import get_protocol
+    protocol = get_protocol(provider.protocol)
 
     headers = protocol.build_headers(provider.api_key)
     body = protocol.build_body(
@@ -115,9 +114,7 @@ def _build_llm_request(messages, temperature=0.7, max_tokens=None, timeout=None,
         messages=messages,
         max_tokens=max_tokens,
         temperature=temperature,
-        thinking_enabled=provider.thinking_enabled,
-        reasoning_effort=provider.reasoning_effort,
-        thinking_budget=provider.thinking_budget,
+        thinking=provider.get_thinking(),
         seed=seed,
     )
 
@@ -143,13 +140,15 @@ def call_llm(messages, temperature=0.7, max_tokens=None, timeout=None,
     provider, headers, body, timeout = result
 
     try:
-        response = requests.post(
-            provider.chat_url,
-            json=body,
-            headers=headers,
-            proxies=get_proxies(),
-            timeout=timeout,
-        )
+        # 用全新 Session 避免连接池里挂起的连接导致后续请求 hang
+        with requests.Session() as session:
+            response = session.post(
+                provider.chat_url,
+                json=body,
+                headers=headers,
+                proxies=get_proxies(),
+                timeout=timeout,
+            )
 
         data = response.json()
 
@@ -202,16 +201,18 @@ def call_llm_stream(messages, temperature=0.7, max_tokens=None, timeout=None,
     provider, headers, body, timeout = result
 
     try:
-        response = requests.post(
-            provider.chat_url,
-            json=body,
-            headers=headers,
-            proxies=get_proxies(),
-            timeout=timeout,
-            stream=True,
-        )
+        # 用全新 Session 避免连接池里挂起的连接导致后续请求 hang
+        with requests.Session() as session:
+            response = session.post(
+                provider.chat_url,
+                json=body,
+                headers=headers,
+                proxies=get_proxies(),
+                timeout=timeout,
+                stream=True,
+            )
 
-        protocol = PROTOCOLS.get(provider.protocol)
+        protocol = get_protocol(provider.protocol)
 
         full_content = []
         for line in response.iter_lines(decode_unicode=True):
@@ -247,13 +248,14 @@ def call_llm_stream(messages, temperature=0.7, max_tokens=None, timeout=None,
 
 def _extract_stream_chunk(protocol, chunk_data: dict) -> str:
     """从流式响应中提取内容片段"""
-    if isinstance(protocol, type(PROTOCOLS.get("openai"))) and protocol is PROTOCOLS.get("openai"):
+    proto_name = type(protocol).__name__
+    if proto_name in ("OpenAICompatProtocol", "DeepSeekProtocol", "MiniMaxProtocol", "StandardOpenAIProtocol"):
         # OpenAI 格式
         choices = chunk_data.get("choices", [])
         if choices:
             delta = choices[0].get("delta", {})
             return _strip_think_tags(delta.get("content", ""))
-    elif isinstance(protocol, type(PROTOCOLS.get("anthropic"))) and protocol is PROTOCOLS.get("anthropic"):
+    elif proto_name == "AnthropicProtocol":
         # Anthropic 格式
         if chunk_data.get("type") == "content_block_delta":
             delta = chunk_data.get("delta", {})

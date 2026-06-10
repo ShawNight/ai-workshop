@@ -39,6 +39,11 @@ export const novelApi = {
   qualityCheck: (data) => api.post('/novel/quality-check', data),
   reviseDesign: (data) => api.post('/novel/revise-design', data),
   reviseBlock: (data) => api.post('/novel/revise-block', data),
+  // 章节人工编辑
+  manualEditChapter: (projectId, chapterId, data) =>
+    api.put(`/novel/projects/${projectId}/chapters/${chapterId}/manual-edit`, data),
+  resetManualEdit: (projectId, chapterId) =>
+    api.delete(`/novel/projects/${projectId}/chapters/${chapterId}/reset-manual`),
 };
 
 export const harnessApi = {
@@ -54,6 +59,22 @@ export const harnessApi = {
   getAgentConfig: () => api.get('/harness/agent-config'),
   updateAgentConfig: (data) => api.put('/harness/agent-config', data),
   refineMeta: (data) => api.post('/harness/refine-meta', data),
+  // Agent 运行历史
+  listAgentRuns: (projectId, params = {}) =>
+    api.get(`/harness/agent-runs/${projectId}`, { params }),
+  getAgentRun: (runId) => api.get(`/harness/agent-run/${runId}`),
+  getLatestAgentRun: (projectId, agentName) =>
+    api.get(`/harness/agent-latest/${projectId}/${agentName}`),
+  retryAgent: (projectId, agentName, phase) =>
+    api.post('/harness/retry-agent', { projectId, agentName, phase }),
+  runSingleAgent: (projectId, agentName) =>
+    api.post('/harness/run-single-agent', { projectId, agentName }),
+  // 设计蓝图
+  getBlueprint: (projectId) => api.get(`/harness/blueprint/${projectId}`),
+  updateBlueprint: (projectId, design) =>
+    api.put(`/harness/blueprint/${projectId}`, { design }),
+  getBlueprintDiff: (projectId) => api.get(`/harness/blueprint-diff/${projectId}`),
 };
 
 export default api;
+

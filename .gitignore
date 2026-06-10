@@ -41,3 +41,9 @@ Thumbs.db
 # OpenCode local settings
 .opencode/
 .reasonix/
+
+# Trae IDE local settings
+.trae/
+
+# Ad-hoc test scripts
+backend/test_*.py

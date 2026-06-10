@@ -63,13 +63,13 @@ def run_planner(state: StoryState) -> StoryState:
 
 只返回JSON，不要任何额外文字。"""
 
-    resp = call_agent_llm("planner", [{"role": "user", "content": prompt}], temperature=0.8, timeout=180)
+    resp = call_agent_llm("planner", [{"role": "user", "content": prompt}], temperature=0.8, timeout=300)
 
     if not resp.success:
         error_msg = resp.error or "未知错误"
         state.set_agent_state("planner", "error", error=error_msg)
         state.log_activity("planner", "error", f"策划师调用失败: {error_msg}")
-        return state
+        raise RuntimeError(f"策划师调用失败: {error_msg}")
 
     result = resp.content
 
@@ -117,7 +117,7 @@ def run_planner(state: StoryState) -> StoryState:
         foreshadow_count = len(design.get("foreshadows", []))
 
         state.set_agent_state("planner", "done", output=json.dumps(design, ensure_ascii=False))
-        state.phase = "writing"
+        state.current_agent = ""
         state.log_activity(
             "planner", "completed",
             f"完成故事蓝图 — {len(design.get('outline', []))}卷{total}章，"
@@ -126,5 +126,6 @@ def run_planner(state: StoryState) -> StoryState:
     else:
         state.set_agent_state("planner", "error", error="AI 返回格式异常")
         state.log_activity("planner", "error", "策划师输出格式异常，请重试")
+        raise RuntimeError("策划师输出格式异常，请重试")
 
     return state

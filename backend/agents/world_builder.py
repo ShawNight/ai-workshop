@@ -79,12 +79,13 @@ def run_world_builder(state: StoryState) -> StoryState:
 
     resp = call_agent_llm("planner",
                           [{"role": "user", "content": prompt}],
-                          temperature=0.7, max_tokens=LLM_MAX_TOKENS_MEDIUM, timeout=180)
+                          temperature=0.7, max_tokens=LLM_MAX_TOKENS_MEDIUM, timeout=120)
 
     if not resp.success:
-        state.set_agent_state("world_builder", "error", error=f"世界观设计调用失败: {resp.error}")
-        state.log_activity("world_builder", "error", f"AI 调用失败: {resp.error}")
-        return state
+        error_msg = f"世界观设计调用失败: {resp.error}"
+        state.set_agent_state("world_builder", "error", error=error_msg)
+        state.log_activity("world_builder", "error", error_msg)
+        raise RuntimeError(error_msg)
 
     result = parse_json_from_response(resp.content, r'\{.*\}')
 

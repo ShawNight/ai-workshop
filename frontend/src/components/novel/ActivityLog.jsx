@@ -14,7 +14,7 @@ export function ActivityLog({ log }) {
       <div className="px-5 py-3 border-b border-[var(--border)]">
         <h3 className="text-sm font-semibold text-[var(--text-secondary)]">活动日志</h3>
       </div>
-      <div className="max-h-64 overflow-y-auto p-4 space-y-2">
+      <div className="max-h-[600px] overflow-y-auto p-4 space-y-2">
         {log.map((entry, idx) => (
           <div key={idx} className="flex items-start gap-3 text-sm">
             <span className="text-xs text-[var(--text-secondary)] w-12 flex-shrink-0 pt-0.5">

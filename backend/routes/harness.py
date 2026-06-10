@@ -12,13 +12,14 @@ from flask import Blueprint, request, jsonify, Response
 from agents import (
     get_or_create_state, start_harness, advance_harness,
     advance_harness_async, auto_advance_async,
-    get_harness_state, reset_harness,
+    get_harness_state, reset_harness, _build_all_workflows,
 )
 from database import (
     get_novel_project, create_novel_project, update_novel_project,
     get_all_agent_configs, update_agent_config,
 )
 from agents.state import AGENT_ROLES, AGENT_LABELS, AGENT_ICONS, AGENT_DESCRIPTIONS
+from agents import _ensure_workflow
 
 harness_bp = Blueprint("harness", __name__)
 
@@ -91,7 +92,9 @@ def state(project_id):
             return jsonify({"success": False, "error": "项目不存在"}), 404
 
         state = get_or_create_state(project_id, project)
-        return jsonify({"success": True, "state": state.to_dict()})
+        state_dict = state.to_dict()
+        state_dict["workflows"] = _build_all_workflows(state)
+        return jsonify({"success": True, "state": state_dict})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -117,23 +120,34 @@ def advance():
         # 确保状态已加载
         state = get_or_create_state(project_id, project)
 
+        # 预构建 workflow DAG，让前端立即看到节点
+        engine = _ensure_workflow(project_id, state)
+        workflow_dict = engine.to_dict()
+        workflows_dict = _build_all_workflows(state)
+
         # 检查是否已在运行
         tq = TaskQueue.get_instance()
         if tq.is_running(project_id):
+            state_dict = state.to_dict()
+            state_dict["workflow"] = workflow_dict
+            state_dict["workflows"] = workflows_dict
             return jsonify({
                 "success": False,
                 "error": "Agent 正在执行中，请等待完成",
-                "state": state.to_dict(),
+                "state": state_dict,
             }), 409
 
         # 异步提交任务
         task_id = advance_harness_async(project_id)
 
-        # 立即返回当前状态 + task_id
+        # 立即返回当前状态 + workflow + task_id
+        state_dict = state.to_dict()
+        state_dict["workflow"] = workflow_dict
+        state_dict["workflows"] = workflows_dict
         return jsonify({
             "success": True,
             "taskId": task_id,
-            "state": state.to_dict(),
+            "state": state_dict,
         })
 
     except ValueError as e:
@@ -165,7 +179,10 @@ def auto():
         if not project:
             return jsonify({"success": False, "error": "项目不存在"}), 404
 
-        get_or_create_state(project_id, project)
+        state = get_or_create_state(project_id, project)
+
+        # 预构建 workflow DAG
+        _ensure_workflow(project_id, state)
 
         # 检查是否已在运行
         tq = TaskQueue.get_instance()
@@ -206,9 +223,13 @@ def stream(project_id):
         tq.add_sse_listener(project_id, q)
 
         try:
-            # 发送初始状态
+            # 发送初始状态（含 workflow 数据）
             state = get_or_create_state(project_id, project)
-            yield f"data: {json.dumps({'type': 'init', 'state': state.to_dict()})}\n\n"
+            init_state = state.to_dict()
+            engine = _ensure_workflow(project_id, state)
+            init_state["workflow"] = engine.to_dict()
+            init_state["workflows"] = _build_all_workflows(state)
+            yield f"data: {json.dumps({'type': 'init', 'state': init_state})}\n\n"
 
             while True:
                 try:
@@ -492,21 +513,37 @@ def refine_meta():
     messages.append({"role": "user", "content": user_msg})
 
     try:
-        result = call_agent_llm("meta", messages=messages, temperature=0.7, max_tokens=1024)
+        result = call_agent_llm("meta", messages=messages, temperature=0.7, max_tokens=2048)
 
         if not result.success:
             return jsonify({"success": False, "error": result.error or "AI 服务不可用"}), 503
 
-        # 解析 JSON
-        content = result.content.strip()
-        # 去除可能的 markdown 代码块
-        if content.startswith("```"):
-            content = content.split("\n", 1)[-1]
-        if content.endswith("```"):
-            content = content.rsplit("\n", 1)[0]
+        # 使用项目中已有的鲁棒 JSON 解析器（支持 markdown 代码块 + 截断 + 注释修复）
+        content = (result.content or "").strip()
+        from routes.novel import parse_json_from_response
+        parsed = parse_json_from_response(content, r'\{.*\}')
 
-        parsed = json.loads(content)
-        meta = parsed.get("meta", {})
+        if not isinstance(parsed, dict) or "meta" not in parsed:
+            # Fallback：LLM 在简单指令下偶尔直接用自然语言回答
+            # 尝试从《》或""中提取新标题，更新 currentMeta
+            import re
+            title_match = re.search(r'[《"]([^《"》]{1,30})[》"]', content)
+            if title_match and current_meta.get("title"):
+                # LLM 改标题了但没返回 JSON，认为成功更新
+                return jsonify({
+                    "success": True,
+                    "reply": content,
+                    "meta": {**current_meta, "title": title_match.group(1)},
+                })
+            # 没有可解析的 JSON 也没有标题信息 —— 视为失败但保留原设定
+            print(f"[refine-meta] JSON 解析失败，原始内容前 500 字符: {content[:500]}")
+            return jsonify({
+                "success": False,
+                "error": "AI 返回格式异常，请重试",
+                "raw": content[:500],
+            }), 502
+
+        meta = parsed.get("meta", {}) or {}
         reply = parsed.get("reply", "已更新设定")
 
         # 校验并填充默认值
@@ -521,5 +558,287 @@ def refine_meta():
 
     except json.JSONDecodeError:
         return jsonify({"success": False, "error": "AI 返回格式异常，请重试"}), 502
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==================== Agent 运行历史 API ====================
+
+@harness_bp.route("/harness/agent-runs/<project_id>", methods=["GET"])
+def list_agent_runs_route(project_id):
+    """列出某项目所有 agent 的运行历史
+
+    Query params:
+        agent: 过滤 agent 名
+        chapter: 过滤章节索引
+        limit: 数量限制（默认 50）
+    """
+    from database import list_agent_runs
+
+    try:
+        project = get_novel_project(project_id)
+        if not project:
+            return jsonify({"success": False, "error": "项目不存在"}), 404
+
+        agent = request.args.get("agent")
+        chapter = request.args.get("chapter", type=int)
+        limit = request.args.get("limit", default=50, type=int)
+
+        runs = list_agent_runs(project_id, agent_name=agent,
+                              chapter_index=chapter, limit=limit)
+        return jsonify({"success": True, "runs": runs})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@harness_bp.route("/harness/agent-run/<run_id>", methods=["GET"])
+def get_agent_run_route(run_id):
+    """获取单次 agent 运行的完整 input/output"""
+    from database import get_agent_run
+
+    try:
+        run = get_agent_run(run_id)
+        if not run:
+            return jsonify({"success": False, "error": "运行记录不存在"}), 404
+        return jsonify({"success": True, "run": run})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@harness_bp.route("/harness/agent-latest/<project_id>/<agent_name>", methods=["GET"])
+def get_latest_agent_run_route(project_id, agent_name):
+    """获取某 agent 最近一次运行记录"""
+    from database import get_latest_agent_run
+
+    try:
+        run = get_latest_agent_run(project_id, agent_name)
+        if not run:
+            return jsonify({"success": False, "error": "无运行记录"}), 404
+        return jsonify({"success": True, "run": run})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@harness_bp.route("/harness/retry-agent", methods=["POST"])
+def retry_agent_route():
+    """重试一个失败的 agent（不会重置整个工作流）
+
+    适用场景：LLM 调用超时/失败后，agent 状态卡在 error，
+    用户可以在不重置工作流的前提下重新发起该 agent 的调用。
+    """
+    from agents.llm import set_current_project, clear_current_project
+    from agents.task_queue import TaskQueue
+
+    data = request.get_json() or {}
+    project_id = data.get("projectId", "")
+    agent_name = data.get("agentName", "")
+    phase = data.get("phase", "writing")  # 告诉 orchestrator 当前要执行哪个 phase 的对应 agent
+
+    if not project_id or not agent_name:
+        return jsonify({"success": False, "error": "缺少 projectId 或 agentName"}), 400
+
+    try:
+        project = get_novel_project(project_id)
+        if not project:
+            return jsonify({"success": False, "error": "项目不存在"}), 404
+
+        state = get_or_create_state(project_id, project)
+
+        # 重置该 agent 的状态
+        state.set_agent_state(agent_name, "running")
+        # 清除残留的 error 字段
+        if agent_name in state.agent_states:
+            state.agent_states[agent_name].pop("error", None)
+        state.log_activity(agent_name, "retry", f"用户重试 agent: {agent_name}")
+
+        # 清除上一轮 workflow 缓存，避免前端看到陈旧的"已完成"节点
+        from agents import _workflows
+        _workflows.pop(project_id, None)
+
+        # 异步执行（与 advance 同样的模式）
+        def _do_retry():
+            set_current_project(project_id)
+            try:
+                # 按 agent 类型路由
+                if agent_name in ("planner", "outline_planner"):
+                    state.phase = "planning"
+                    from agents import _run_planning_dag
+                    _run_planning_dag(state)
+                elif agent_name == "character_designer":
+                    from agents.character_designer import run_character_designer
+                    run_character_designer(state)
+                elif agent_name == "world_builder":
+                    from agents.world_builder import run_world_builder
+                    run_world_builder(state)
+                elif agent_name == "foreshadow_planner":
+                    from agents.planner import run_planner
+                    run_planner(state)
+                elif agent_name == "writer":
+                    from agents.writer import run_writer
+                    run_writer(state)
+                elif agent_name == "critic":
+                    from agents.critic import run_critic
+                    run_critic(state)
+                elif agent_name == "editor":
+                    from agents.editor import run_editor
+                    run_editor(state)
+                elif agent_name == "memory_keeper":
+                    from agents.memory_keeper import run_memory_keeper
+                    run_memory_keeper(state, state.current_chapter_index)
+                elif agent_name == "blueprint_sync":
+                    from agents.blueprint_sync import run_blueprint_sync
+                    run_blueprint_sync(state, state.current_chapter_index)
+                else:
+                    raise ValueError(f"未知 agent: {agent_name}")
+            finally:
+                clear_current_project()
+
+        task_id = TaskQueue.get_instance().submit(project_id, _do_retry)
+
+        return jsonify({"success": True, "taskId": task_id, "message": f"已重新发起 {agent_name}"})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@harness_bp.route("/harness/run-single-agent", methods=["POST"])
+def run_single_agent_route():
+    """单独运行指定 Agent（不限失败状态，idle/done/error 都可执行）"""
+    data = request.get_json() or {}
+    project_id = data.get("projectId", "")
+    agent_name = data.get("agentName", "")
+
+    if not project_id or not agent_name:
+        return jsonify({"success": False, "error": "缺少 projectId 或 agentName"}), 400
+
+    try:
+        project = get_novel_project(project_id)
+        if not project:
+            return jsonify({"success": False, "error": "项目不存在"}), 404
+
+        get_or_create_state(project_id, project)
+
+        # 检查是否已在运行
+        from agents.task_queue import TaskQueue
+        tq = TaskQueue.get_instance()
+        if tq.is_running(project_id):
+            return jsonify({
+                "success": False,
+                "error": "Agent 正在执行中，请等待完成",
+            }), 409
+
+        from agents import run_single_agent_async
+        task_id = run_single_agent_async(project_id, agent_name)
+
+        return jsonify({"success": True, "taskId": task_id, "message": f"已启动 {agent_name}"})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==================== 设计蓝图 API ====================
+
+@harness_bp.route("/harness/blueprint/<project_id>", methods=["GET"])
+def get_blueprint_route(project_id):
+    """获取项目的完整设计蓝图（design JSON）"""
+    try:
+        state = get_or_create_state(project_id)
+        design = state.design or {}
+        return jsonify({
+            "success": True,
+            "design": design,
+            "synopsis": state.synopsis,
+            "genre": state.genre,
+            "style": state.style,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@harness_bp.route("/harness/blueprint/<project_id>", methods=["PUT"])
+def update_blueprint_route(project_id):
+    """用户手动更新设计蓝图"""
+    import uuid
+    from database import update_novel_project, insert_blueprint_change
+
+    data = request.get_json() or {}
+    design = data.get("design")
+    if not design or not isinstance(design, dict):
+        return jsonify({"success": False, "error": "缺少 design 字段"}), 400
+
+    try:
+        project = get_novel_project(project_id)
+        if not project:
+            return jsonify({"success": False, "error": "项目不存在"}), 404
+
+        state = get_or_create_state(project_id, project)
+        old_design = state.design or {}
+        state.design = design
+
+        new_chars = [c for c in design.get("characters", []) or []
+                     if c not in (old_design.get("characters") or [])]
+        new_fores = [f for f in design.get("foreshadows", []) or []
+                     if f not in (old_design.get("foreshadows") or [])]
+
+        update_novel_project(project_id, {
+            "settings": design,
+            "outline": design.get("outline", []),
+            "characters": design.get("characters", []),
+            "foreshadows": design.get("foreshadows", []),
+        })
+
+        from agents.state_store import StateStore
+        from agents.blackboard import Blackboard
+        StateStore.save(state)
+
+        try:
+            bb = Blackboard()
+            bb.load_from_design(design)
+            bb.persist(project_id)
+        except Exception:
+            pass
+
+        change_id = f"bc-{uuid.uuid4().hex[:8]}"
+        insert_blueprint_change(
+            change_id=change_id,
+            project_id=project_id,
+            source="user_edit",
+            change_type="manual_update",
+            change_data={
+                "new_characters": new_chars,
+                "new_foreshadows": new_fores,
+            },
+            chapter_index=state.current_chapter_index,
+        )
+
+        from agents.task_queue import TaskQueue
+        TaskQueue.get_instance().notify_sse(project_id, {
+            "type": "blueprint_updated",
+            "diff": {
+                "new_characters": new_chars,
+                "new_foreshadows": new_fores,
+                "updated_characters": [],
+                "chapter": state.current_chapter_index + 1,
+                "source": "user_edit",
+            },
+        })
+
+        return jsonify({"success": True, "design": design})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@harness_bp.route("/harness/blueprint-diff/<project_id>", methods=["GET"])
+def blueprint_diff_route(project_id):
+    """返回蓝图变更历史（用于 BlueprintPage 高亮本次更新）"""
+    from database import list_blueprint_changes
+
+    try:
+        changes = list_blueprint_changes(project_id, limit=100)
+        return jsonify({"success": True, "changes": changes})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

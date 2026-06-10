@@ -218,9 +218,9 @@ class Blackboard:
         # --- 6. 章节摘要（从最近往回填充）---
         if self.chapter_summaries and char_budget > 200:
             summary_parts = []
-            sorted_indices = sorted(self.chapter_summaries.keys(), reverse=True)
+            sorted_indices = sorted(self.chapter_summaries.keys(), key=int, reverse=True)
             for idx in sorted_indices:
-                if idx >= chapter_index:
+                if int(idx) >= chapter_index:
                     continue  # 跳过当前及之后的章节
                 summary = self.chapter_summaries[idx]
                 line = f"第{idx}章摘要: {summary}"

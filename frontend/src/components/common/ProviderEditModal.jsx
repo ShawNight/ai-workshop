@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, Server, MessageSquare, Key, Brain, Plus, Trash2, Layers } from 'lucide-react';
+import { X, Server, MessageSquare, Key, Plus, Trash2, Layers } from 'lucide-react';
 import useProviderStore from '../../store/providerStore';
 import { providerApi } from '../../api/provider';
+import { ThinkingSection } from './ThinkingSection';
 
 const inputClass = [
   'w-full rounded-lg border border-[var(--border)] bg-[var(--bg)]',
@@ -15,7 +16,9 @@ const labelClass = 'block text-xs font-medium text-[var(--text-secondary)] mb-1.
 const selectClass = inputClass + ' cursor-pointer';
 
 const urlPlaceholders = {
-  openai: 'https://api.deepseek.com/chat/completions',
+  openai: 'https://api.openai.com/v1/chat/completions',
+  deepseek: 'https://api.deepseek.com/chat/completions',
+  minimax: 'https://api.minimaxi.com/v1/chat/completions',
   anthropic: 'https://api.anthropic.com/v1/messages',
 };
 
@@ -32,7 +35,7 @@ export function ProviderEditModal({ mode, provider, onClose }) {
   const { protocols, createProvider, updateProvider } = useProviderStore();
   const isEdit = mode === 'edit';
 
-  const [form, setForm] = useState({
+  const initialForm = {
     name: '',
     displayName: '',
     protocol: 'openai',
@@ -40,9 +43,23 @@ export function ProviderEditModal({ mode, provider, onClose }) {
     chatModel: '',
     apiKey: '',
     thinkingEnabled: false,
-    reasoningEffort: 'high',
-    thinkingBudget: 10000,
-  });
+    thinkingConfig: {},
+  };
+  // create 模式下也接受 provider 作为模板预填
+  const initialFromProvider = !isEdit && provider
+    ? {
+        name: provider.name || '',
+        displayName: provider.displayName || '',
+        protocol: provider.protocol || 'openai',
+        chatUrl: provider.chatUrl || '',
+        chatModel: provider.chatModel || '',
+        apiKey: '',
+        thinkingEnabled: provider.thinkingEnabled || false,
+        thinkingConfig: provider.thinkingConfig || {},
+      }
+    : initialForm;
+
+  const [form, setForm] = useState(initialFromProvider);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [models, setModels] = useState([]);
@@ -50,7 +67,7 @@ export function ProviderEditModal({ mode, provider, onClose }) {
   const [addingModel, setAddingModel] = useState(false);
 
   const selectedProtocol = protocols.find(p => p.name === form.protocol);
-  const showThinking = selectedProtocol?.supportsThinking;
+  const thinkingSchema = selectedProtocol?.thinkingSchema;
 
   useEffect(() => {
     if (isEdit && provider) {
@@ -66,11 +83,28 @@ export function ProviderEditModal({ mode, provider, onClose }) {
         chatModel: provider.chatModel,
         apiKey: (provider?.apiKeyBroken || !provider?.apiKeyMasked) ? '' : (provider.apiKeyMasked || ''),
         thinkingEnabled: provider.thinkingEnabled || false,
-        reasoningEffort: provider.reasoningEffort || 'high',
-        thinkingBudget: provider.thinkingBudget || 10000,
+        thinkingConfig: provider.thinkingConfig || {},
       });
     }
   }, [mode, provider]);
+
+  // 当 protocol 切换时，重置 thinkingConfig 为该协议 schema 的默认值
+  useEffect(() => {
+    if (!thinkingSchema) {
+      setForm(prev => ({ ...prev, thinkingConfig: {}, thinkingEnabled: false }));
+      return;
+    }
+    setForm(prev => {
+      // 保留已有值，但补全缺失的字段
+      const merged = { ...prev.thinkingConfig };
+      for (const f of thinkingSchema.fields || []) {
+        if (merged[f.key] === undefined && f.default !== undefined) {
+          merged[f.key] = f.default;
+        }
+      }
+      return { ...prev, thinkingConfig: merged };
+    });
+  }, [thinkingSchema]);
 
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -280,57 +314,19 @@ export function ProviderEditModal({ mode, provider, onClose }) {
             </section>
           )}
 
-          {/* Thinking Mode */}
-          {showThinking && (
-            <section>
-              <button
-                type="button"
-                onClick={() => handleChange('thinkingEnabled', !form.thinkingEnabled)}
-                className="flex items-center gap-3 w-full"
-              >
-                <div className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${form.thinkingEnabled ? 'bg-[var(--primary)]' : 'bg-gray-300 dark:bg-gray-600'}`}>
-                  <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${form.thinkingEnabled ? 'translate-x-4' : ''}`} />
-                </div>
-                <SectionTitle icon={Brain} title="思考模式" />
-              </button>
-
-              {form.thinkingEnabled && (
-                <div className="mt-3 pl-4 border-l-2 border-[var(--primary)]/20 space-y-3">
-                  {form.protocol === 'anthropic' ? (
-                    <div>
-                      <label className={labelClass}>思考预算 (tokens)</label>
-                      <input
-                        type="number"
-                        value={form.thinkingBudget}
-                        onChange={(e) => handleChange('thinkingBudget', parseInt(e.target.value) || 10000)}
-                        min={1024}
-                        max={128000}
-                        className={inputClass}
-                      />
-                      <p className="text-[11px] text-[var(--text-secondary)] mt-1">
-                        模型在思考阶段可使用的最大 token 数
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <label className={labelClass}>思考强度</label>
-                      <select
-                        value={form.reasoningEffort}
-                        onChange={(e) => handleChange('reasoningEffort', e.target.value)}
-                        className={selectClass}
-                      >
-                        <option value="high">High — 适合一般任务</option>
-                        <option value="max">Max — 适合复杂推理</option>
-                      </select>
-                      <p className="text-[11px] text-[var(--text-secondary)] mt-1">
-                        开启后模型会先输出思维链再给出回答，temperature 等参数将被忽略
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-          )}
+          {/* Thinking Mode — schema-driven 渲染 */}
+          <ThinkingSection
+            schema={thinkingSchema}
+            enabled={form.thinkingEnabled}
+            values={form.thinkingConfig}
+            onToggle={(v) => handleChange('thinkingEnabled', v)}
+            onChange={(k, v) => setForm(prev => ({
+              ...prev,
+              thinkingConfig: { ...prev.thinkingConfig, [k]: v },
+            }))}
+            inputClass={inputClass}
+            selectClass={selectClass}
+          />
 
 
         </div>

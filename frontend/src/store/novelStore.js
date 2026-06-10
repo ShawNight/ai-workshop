@@ -6,10 +6,16 @@ export const useNovelStore = create(
     (set) => ({
       projects: [],
       currentProject: null,
+      currentDesign: null,
+      blueprintChanges: [],
 
       setProjects: (projects) => set({ projects }),
 
       setCurrentProject: (project) => set({ currentProject: project }),
+
+      setCurrentDesign: (design) => set({ currentDesign: design }),
+
+      setBlueprintChanges: (changes) => set({ blueprintChanges: changes }),
 
       addProject: (project) => set((state) => ({
         projects: [project, ...state.projects]
@@ -27,7 +33,7 @@ export const useNovelStore = create(
         currentProject: state.currentProject?.id === id ? null : state.currentProject
       })),
 
-      clearCurrentProject: () => set({ currentProject: null }),
+      clearCurrentProject: () => set({ currentProject: null, currentDesign: null, blueprintChanges: [] }),
     }),
     {
       name: 'ai-workshop-novel',
@@ -35,3 +41,4 @@ export const useNovelStore = create(
     }
   )
 );
+

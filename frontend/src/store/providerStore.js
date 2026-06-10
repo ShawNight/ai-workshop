@@ -4,6 +4,7 @@ import { providerApi } from '../api/provider';
 const useProviderStore = create((set, get) => ({
   providers: [],
   protocols: [],
+  templates: [],
   textProvider: '',
   musicProvider: '',
   textProviderInfo: null,
@@ -13,10 +14,11 @@ const useProviderStore = create((set, get) => ({
   fetchProviders: async () => {
     set({ loading: true });
     try {
-      const [providersRes, configRes, protocolsRes] = await Promise.all([
+      const [providersRes, configRes, protocolsRes, templatesRes] = await Promise.all([
         providerApi.getProviders(),
         providerApi.getConfig(),
         providerApi.getProtocols(),
+        providerApi.getTemplates(),
       ]);
       if (providersRes.data.success) {
         set({ providers: providersRes.data.providers });
@@ -31,6 +33,9 @@ const useProviderStore = create((set, get) => ({
       }
       if (protocolsRes.data.success) {
         set({ protocols: protocolsRes.data.protocols });
+      }
+      if (templatesRes.data.success) {
+        set({ templates: templatesRes.data.templates });
       }
     } catch (e) {
       console.error('Failed to fetch provider config:', e);

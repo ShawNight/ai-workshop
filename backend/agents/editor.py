@@ -41,7 +41,7 @@ def run_editor(state: StoryState) -> StoryState:
 
 请直接输出润色后的完整章节正文，不要添加任何标记或说明。"""
 
-    resp = call_agent_llm("editor", [{"role": "user", "content": prompt}], temperature=0.4)
+    resp = call_agent_llm("editor", [{"role": "user", "content": prompt}], temperature=0.4, timeout=90)
     result = resp.content if resp.success else None
 
     if result is None:
@@ -81,6 +81,7 @@ def _advance_chapter(state: StoryState) -> StoryState:
     """推进到下一章
 
     Phase 2: 润色完成后运行 MemoryKeeper 更新 Blackboard
+    Phase 6: 润色完成后运行 BlueprintSync 提取新角色/新伏笔并回写 design
     """
     chapter_index = state.current_chapter_index
 
@@ -90,6 +91,13 @@ def _advance_chapter(state: StoryState) -> StoryState:
         update_blackboard_after_chapter(state, chapter_index)
     except Exception as e:
         print(f"[Editor] MemoryKeeper 更新失败（不影响主流程）: {e}")
+
+    # 运行 BlueprintSync 同步设计蓝图
+    try:
+        from .blueprint_sync import run_blueprint_sync
+        run_blueprint_sync(state, chapter_index)
+    except Exception as e:
+        print(f"[Editor] BlueprintSync 失败（不影响主流程）: {e}")
 
     state.completed_chapters += 1
     state.revision_count = 0

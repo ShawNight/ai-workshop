@@ -16,7 +16,7 @@ cleanup() {
     exit 0
 }
 
-trap cleanup SIGINT SIGTERM EXIT
+trap cleanup SIGINT SIGTERM
 
 VENV_PYTHON="$BACKEND_DIR/.venv/bin/python3"
 if [ ! -f "$VENV_PYTHON" ]; then
@@ -50,7 +50,13 @@ start_frontend() {
 }
 
 stop_services() {
-    cleanup
+    echo "正在停止服务..."
+    [ -f "$BACKEND_PID_FILE" ] && kill "$(cat "$BACKEND_PID_FILE")" 2>/dev/null
+    [ -f "$FRONTEND_PID_FILE" ] && kill "$(cat "$FRONTEND_PID_FILE")" 2>/dev/null
+    rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
+    # 等子进程退出，避免重启时端口冲突
+    sleep 1
+    echo "已停止所有服务"
 }
 
 status_services() {
@@ -59,16 +65,20 @@ status_services() {
     [ -f "$FRONTEND_PID_FILE" ] && kill -0 "$(cat "$FRONTEND_PID_FILE")" 2>/dev/null && echo "前端: 运行中 (PID: $(cat "$FRONTEND_PID_FILE"))" || echo "前端: 未运行"
 }
 
+start_services() {
+    setup_backend_venv
+    start_backend
+    sleep 1
+    start_frontend
+    echo ""
+    echo "所有服务已启动!"
+    echo "后端: http://localhost:3001"
+    echo "前端: http://localhost:5173"
+}
+
 case "${1:-start}" in
     start)
-        setup_backend_venv
-        start_backend
-        sleep 1
-        start_frontend
-        echo ""
-        echo "所有服务已启动!"
-        echo "后端: http://localhost:3001"
-        echo "前端: http://localhost:5173"
+        start_services
         wait
         ;;
     stop)
@@ -76,10 +86,7 @@ case "${1:-start}" in
         ;;
     restart)
         stop_services
-        sleep 1
-        start_backend
-        sleep 1
-        start_frontend
+        start_services
         wait
         ;;
     status)

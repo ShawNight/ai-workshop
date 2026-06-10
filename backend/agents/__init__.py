@@ -11,6 +11,7 @@ from .state import StoryState, AGENT_ROLES, AGENT_LABELS
 from .state_store import StateStore
 from .task_queue import TaskQueue
 from .workflow import WorkflowEngine
+from .llm import set_current_project, clear_current_project
 from .planner import run_planner
 from .writer import run_writer
 from .critic import run_critic
@@ -119,9 +120,15 @@ def _run_planning_dag(state: StoryState) -> StoryState:
     """使用 DAG 工作流执行策划阶段
 
     Phase 4: 策划完成后检查是否需要暂停等待用户审批
+    Phase 6: 立即把新创建的 engine 写入 _workflows 缓存，覆盖上一轮的旧数据，
+             否则前端会在新一轮 LLM 调用期间看到过期的"已完成"节点
     """
     engine = WorkflowEngine(state)
     engine.build_planning_graph()
+
+    # 立即覆盖缓存：让前端看到新一轮的初始 pending/ready 节点
+    # 而非上一轮已完成的 DAG
+    _workflows[state.project_id] = engine
 
     # 同步执行 DAG
     engine.run_until_blocked()
@@ -138,6 +145,7 @@ def _run_planning_dag(state: StoryState) -> StoryState:
             if state.should_pause_at_checkpoint("planning"):
                 state.set_checkpoint("planning")
             else:
+                state.current_agent = ""
                 state.phase = "writing"
                 state.log_activity("system", "planning_complete",
                                    f"策划阶段完成，进入写作阶段（{state.total_chapters}章）")
@@ -149,11 +157,20 @@ def advance_harness(project_id: str) -> StoryState:
     """推进 Harness 到下一个 Agent/阶段（同步，内部使用）
 
     Phase 4: 支持 checkpoint 暂停阶段。
+    Phase 6: 包装 set_current_project 以便 LLM 调用日志关联 project。
     """
     state = _get_state(project_id)
     if not state:
         raise ValueError(f"项目 {project_id} 未初始化 Harness")
 
+    set_current_project(project_id)
+    try:
+        return _advance_harness_inner(project_id, state)
+    finally:
+        clear_current_project()
+
+
+def _advance_harness_inner(project_id: str, state: StoryState) -> StoryState:
     # 快速检查 LLM 是否可用
     phase = state.phase
     if phase in ("idle", "planning") and not _check_llm_available():
@@ -164,11 +181,9 @@ def advance_harness(project_id: str) -> StoryState:
     phase = state.phase
 
     if phase == "idle":
-        # 首次推进：使用 DAG 执行策划阶段
         state = _run_planning_dag(state)
 
     elif phase == "planning":
-        # 策划进行中（可能上次未完成），继续执行 DAG
         if project_id in _workflows:
             engine = _workflows[project_id]
             engine.run_until_blocked()
@@ -179,22 +194,23 @@ def advance_harness(project_id: str) -> StoryState:
                     if state.should_pause_at_checkpoint("planning"):
                         state.set_checkpoint("planning")
                     else:
+                        state.current_agent = ""
                         state.phase = "writing"
                         state.log_activity("system", "planning_complete",
                                            f"策划阶段完成，进入写作阶段（{state.total_chapters}章）")
         else:
-            # 没有 workflow 实例，重新构建
             state = _run_planning_dag(state)
 
     elif phase == "checkpoint":
-        # 检查点阶段：不自动推进，需要用户 approve
         pass
 
     elif phase == "writing":
-        state = run_writer(state)
+        if _is_current_chapter_manually_edited(state):
+            state = _skip_manually_edited_chapter(state)
+        else:
+            state = run_writer(state)
     elif phase == "reviewing":
         state = run_critic(state)
-        # Phase 4: 评论家低分暂停
         if state.phase == "revising":
             current = state.chapters[state.current_chapter_index]
             critic_log = None
@@ -216,12 +232,11 @@ def advance_harness(project_id: str) -> StoryState:
 
     _states[project_id] = state
 
-    # 获取工作流状态用于SSE推送
-    workflow_dict = None
-    if project_id in _workflows:
-        workflow_dict = _workflows[project_id].to_dict()
+    # 确保 workflow DAG 存在，让前端始终能拿到节点数据
+    _ensure_workflow(project_id, state)
+    workflow_dict = _workflows[project_id].to_dict() if project_id in _workflows else None
+    workflows_dict = _build_all_workflows(state)
 
-    # 每步完成后自动持久化
     StateStore.save_with_event(state, {
         "type": "agent_step_done",
         "phase": state.phase,
@@ -229,8 +244,38 @@ def advance_harness(project_id: str) -> StoryState:
         "completedChapters": state.completed_chapters,
         "totalChapters": state.total_chapters,
         "workflow": workflow_dict,
+        "workflows": workflows_dict,
     })
 
+    return state
+
+
+def _is_current_chapter_manually_edited(state: StoryState) -> bool:
+    """检查当前章节是否被用户人工编辑过（且还未被作者写入 polished 状态）"""
+    if not state.chapters or state.current_chapter_index >= len(state.chapters):
+        return False
+    current = state.chapters[state.current_chapter_index]
+    return bool(current.get("manually_edited")) and current.get("status") != "polished"
+
+
+def _skip_manually_edited_chapter(state: StoryState) -> StoryState:
+    """跳过人工编辑过的章节：标记为 polished 并前进到下一章"""
+    current = state.chapters[state.current_chapter_index]
+    current["status"] = "polished"
+    state.completed_chapters += 1
+    state.revision_count = 0
+    state.log_activity("system", "chapter_skipped_manual",
+                       f"第{current['index']}章已人工编辑，自动跳过 (保留 {len(current.get('content',''))} 字)")
+
+    if state.current_chapter_index + 1 < len(state.chapters):
+        state.current_chapter_index += 1
+        state.phase = "writing"
+        state.log_activity("system", "next_chapter",
+                           f"进入第{state.chapters[state.current_chapter_index]['index']}章")
+    else:
+        state.phase = "complete"
+        state.log_activity("system", "complete",
+                           f"全部{state.total_chapters}章创作完成！")
     return state
 
 
@@ -242,6 +287,102 @@ def advance_harness_async(project_id: str) -> str:
         return advance_harness(project_id)
 
     return tq.submit(project_id, _do_advance)
+
+
+def run_single_agent(project_id: str, agent_name: str) -> StoryState:
+    """单独运行指定 Agent
+
+    与 retry-agent 不同，不限失败状态，任意 idle/done/error 状态的 agent 都可执行。
+    执行完成后通过 SSE 推送状态更新。
+    """
+    state = _get_state(project_id)
+    if not state:
+        raise ValueError(f"项目 {project_id} 未初始化 Harness")
+
+    set_current_project(project_id)
+    try:
+        state.set_agent_state(agent_name, "running")
+        if agent_name in state.agent_states:
+            state.agent_states[agent_name].pop("error", None)
+
+        # 按 agent 类型路由
+        if agent_name in ("planner", "outline_planner"):
+            state.phase = "planning"
+            state = _run_planning_dag(state)
+        elif agent_name == "character_designer":
+            from .character_designer import run_character_designer
+            state = run_character_designer(state)
+        elif agent_name == "world_builder":
+            from .world_builder import run_world_builder
+            state = run_world_builder(state)
+        elif agent_name == "foreshadow_planner":
+            from .planner import run_planner
+            state = run_planner(state)
+        elif agent_name == "writer":
+            state = run_writer(state)
+        elif agent_name == "critic":
+            state = run_critic(state)
+        elif agent_name == "editor":
+            state = run_editor(state)
+        elif agent_name == "memory_keeper":
+            from .memory_keeper import run_memory_keeper
+            state = run_memory_keeper(state, state.current_chapter_index)
+        elif agent_name == "blueprint_sync":
+            from .blueprint_sync import run_blueprint_sync
+            state = run_blueprint_sync(state, state.current_chapter_index)
+        else:
+            raise ValueError(f"未知 agent: {agent_name}")
+
+        state.log_activity(agent_name, "single_run", f"单独执行 {agent_name}")
+    except Exception:
+        state.set_agent_state(agent_name, "error", error="单独执行失败")
+        # 持久化错误状态，避免前端看不到失败信息
+        _states[project_id] = state
+        workflow_dict = None
+        if project_id in _workflows:
+            workflow_dict = _workflows[project_id].to_dict()
+        workflows_dict = _build_all_workflows(state)
+        StateStore.save_with_event(state, {
+            "type": "agent_step_done",
+            "phase": state.phase,
+            "currentAgent": agent_name,
+            "completedChapters": state.completed_chapters,
+            "totalChapters": state.total_chapters,
+            "workflow": workflow_dict,
+            "workflows": workflows_dict,
+        })
+        raise
+    finally:
+        clear_current_project()
+
+    _states[project_id] = state
+
+    workflow_dict = None
+    if project_id in _workflows:
+        workflow_dict = _workflows[project_id].to_dict()
+    workflows_dict = _build_all_workflows(state)
+
+    StateStore.save_with_event(state, {
+        "type": "agent_step_done",
+        "phase": state.phase,
+        "currentAgent": state.current_agent,
+        "completedChapters": state.completed_chapters,
+        "totalChapters": state.total_chapters,
+        "workflow": workflow_dict,
+        "workflows": workflows_dict,
+    })
+
+    return state
+
+
+def run_single_agent_async(project_id: str, agent_name: str) -> str:
+    """异步单独运行指定 Agent — 提交到 TaskQueue"""
+    tq = TaskQueue.get_instance()
+
+    def _do_run():
+        return run_single_agent(project_id, agent_name)
+
+    return tq.submit(project_id, _do_run)
 
 
 def auto_advance_async(project_id: str, max_steps: int = 200) -> str:
@@ -283,6 +424,7 @@ def auto_advance_async(project_id: str, max_steps: int = 200) -> str:
             workflow_dict = None
             if project_id in _workflows:
                 workflow_dict = _workflows[project_id].to_dict()
+            workflows_dict = _build_all_workflows(state)
 
             tq.notify_sse(project_id, {
                 "type": "auto_progress",
@@ -293,6 +435,7 @@ def auto_advance_async(project_id: str, max_steps: int = 200) -> str:
                 "completedChapters": state.completed_chapters,
                 "progressPercent": state.progress_percent(),
                 "workflow": workflow_dict,
+                "workflows": workflows_dict,
             })
 
         return state
@@ -348,6 +491,163 @@ def auto_advance(project_id: str, max_steps: int = 200) -> StoryState:
     return state
 
 
+def _ensure_workflow(project_id: str, state: StoryState) -> WorkflowEngine:
+    """确保 _workflows 中有对应阶段的 DAG（避免前端无 workflow 数据）
+
+    当 workflow 已存在时，同步 agent_states 到节点状态，让前端看到实时状态。
+    """
+    if project_id in _workflows:
+        engine = _workflows[project_id]
+        # 同步 agent_states 到 DAG 节点状态
+        for node in engine.nodes.values():
+            agent_key = WorkflowEngine._node_to_agent_key(node.id)
+            if agent_key and agent_key in state.agent_states:
+                agent_st = state.agent_states[agent_key].get("status", "idle")
+                # 只更新非 sync 节点（有 agent_fn 的）且状态比当前更新
+                if node.agent_fn and agent_st in ("running", "error"):
+                    if node.status not in ("running",):
+                        node.status = agent_st
+                        if agent_st == "error":
+                            node.error = state.agent_states[agent_key].get("error", "")
+        return engine
+
+    engine = WorkflowEngine(state)
+    phase = state.phase
+
+    if phase in ("idle", "planning", "checkpoint"):
+        engine.build_planning_graph()
+    elif phase in ("writing", "reviewing", "revising", "polishing", "complete"):
+        engine.build_chapter_graph(state.current_chapter_index)
+
+    _workflows[project_id] = engine
+    return engine
+
+
+def _sync_planning_status(engine: WorkflowEngine, state: StoryState) -> None:
+    """根据 state.design 回填策划阶段 DAG 节点状态
+
+    用于 Tab 切换：让非当前阶段的 DAG 也能正确反映历史完成情况。
+    """
+    design = state.design or {}
+    if not isinstance(design, dict):
+        design = {}
+
+    if design.get("outline"):
+        engine.nodes["outline_planner"].status = "done"
+
+    if design.get("characters"):
+        node = engine.nodes.get("character_designer")
+        if node:
+            node.status = "done"
+
+    if design.get("world_rules"):
+        node = engine.nodes.get("world_builder")
+        if node:
+            node.status = "done"
+
+    if design.get("foreshadows"):
+        node = engine.nodes.get("foreshadow_planner")
+        if node:
+            node.status = "done"
+
+    # 正在运行的策划 agent 标记为 running
+    running_agent = state.current_agent
+    if state.phase in ("idle", "planning") and running_agent:
+        node = engine.nodes.get(running_agent)
+        if node and node.status in ("pending", "ready"):
+            node.status = "running"
+
+    # 评估 planning_done
+    engine._evaluate_sync_nodes()
+
+
+def _sync_writing_status(engine: WorkflowEngine, state: StoryState) -> None:
+    """根据当前章节的 status / revision_count 回填写作阶段 DAG 节点状态
+
+    用于 Tab 切换：让非当前阶段的 DAG 也能正确反映历史完成情况。
+    """
+    if not state.chapters:
+        return
+    if state.current_chapter_index < 0 or state.current_chapter_index >= len(state.chapters):
+        return
+
+    chapter = state.chapters[state.current_chapter_index]
+    ch_status = chapter.get("status", "pending")
+    ch_prefix = f"ch{state.current_chapter_index + 1}"
+
+    # 节点状态映射
+    writer_node = engine.nodes.get(f"{ch_prefix}_writer")
+    critic_node = engine.nodes.get(f"{ch_prefix}_critic")
+    editor_node = engine.nodes.get(f"{ch_prefix}_editor")
+    revise_node = engine.nodes.get(f"{ch_prefix}_revise")
+    re_review_node = engine.nodes.get(f"{ch_prefix}_re_review")
+
+    # 写作：写完草稿后 -> done
+    if ch_status in ("draft", "reviewed", "revising", "polished") and writer_node:
+        writer_node.status = "done"
+    # 审查
+    if ch_status in ("reviewed", "revising", "polished") and critic_node:
+        critic_node.status = "done"
+    # 修改（有修订记录）
+    if state.revision_count and state.revision_count > 0 and revise_node:
+        revise_node.status = "done"
+    # 复审（最终 polished 且有修订）
+    if ch_status == "polished" and state.revision_count and state.revision_count > 0 and re_review_node:
+        re_review_node.status = "done"
+    # 编辑润色
+    if ch_status == "polished" and editor_node:
+        editor_node.status = "done"
+
+    # 当前正在运行的节点
+    running_agent = state.current_agent
+    if state.phase in ("writing", "reviewing", "revising", "polishing") and running_agent:
+        agent_node_id_map = {
+            "writer": f"{ch_prefix}_writer",
+            "critic": f"{ch_prefix}_critic",
+            "editor": f"{ch_prefix}_editor",
+        }
+        nid = agent_node_id_map.get(running_agent)
+        if nid:
+            node = engine.nodes.get(nid)
+            if node and node.status in ("pending", "ready"):
+                node.status = "running"
+
+    # 评估 chN_done
+    engine._evaluate_sync_nodes()
+
+
+def _build_all_workflows(state: StoryState) -> dict:
+    """为所有阶段构建工作流快照（用于前端 Tab 切换）
+
+    返回 dict: {planning: {...}, writing: {...}, complete: {...}}
+    任何阶段不存在时省略对应键。
+    """
+    workflows = {}
+
+    # (1) 策划阶段 DAG — 始终构建
+    p_engine = WorkflowEngine(state)
+    p_engine.build_planning_graph()
+    _sync_planning_status(p_engine, state)
+    workflows["planning"] = p_engine.to_dict()
+
+    # (2) 写作阶段 DAG — 基于当前章节
+    if state.chapters and 0 <= state.current_chapter_index < len(state.chapters):
+        w_engine = WorkflowEngine(state)
+        w_engine.build_chapter_graph(state.current_chapter_index)
+        _sync_writing_status(w_engine, state)
+        workflows["writing"] = w_engine.to_dict()
+
+    # (3) 完成阶段 DAG — 仅在 phase=complete 时构建
+    if state.phase == "complete" and state.chapters:
+        c_engine = WorkflowEngine(state)
+        c_engine.build_chapter_graph(state.current_chapter_index)
+        for node in c_engine.nodes.values():
+            node.status = "done"
+        workflows["complete"] = c_engine.to_dict()
+
+    return workflows
+
+
 def get_harness_state(project_id: str) -> dict:
     """获取 Harness 当前状态（包含工作流可视化数据）"""
     state = _get_state(project_id)
@@ -357,8 +657,9 @@ def get_harness_state(project_id: str) -> dict:
     result = state.to_dict()
 
     # 附加工作流状态（用于前端 DAG 可视化）
-    if project_id in _workflows:
-        result["workflow"] = _workflows[project_id].to_dict()
+    engine = _ensure_workflow(project_id, state)
+    engine._evaluate_sync_nodes()
+    result["workflow"] = engine.to_dict()
 
     return result
 

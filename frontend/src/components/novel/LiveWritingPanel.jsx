@@ -57,7 +57,7 @@ export function LiveWritingPanel({ chapter, isActive }) {
       {/* 内容区域 */}
       <div
         ref={contentRef}
-        className="p-6 max-h-[500px] overflow-y-auto"
+        className="p-6 max-h-[600px] overflow-y-auto"
       >
         {displayText ? (
           <div className="prose prose-sm dark:prose-invert max-w-none">

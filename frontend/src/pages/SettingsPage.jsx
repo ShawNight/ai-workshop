@@ -142,12 +142,13 @@ function AgentModelSelect({ agent, config, providers, onUpdate }) {
 }
 
 export function SettingsPage() {
-  const { providers, loading, fetchProviders, deleteProvider, testProvider } = useProviderStore();
+  const { providers, templates, loading, fetchProviders, deleteProvider, testProvider } = useProviderStore();
   const [editModal, setEditModal] = useState(null);
   const [testing, setTesting] = useState(null);
   const [testResult, setTestResult] = useState(null);
   const [agentConfigs, setAgentConfigs] = useState([]);
   const [agentsInfo, setAgentsInfo] = useState({});
+  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
 
   useEffect(() => {
     fetchProviders();
@@ -221,10 +222,52 @@ export function SettingsPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Provider 列表</h3>
-          <button onClick={() => { setTestResult(null); setEditModal({ mode: 'create' }); }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] transition-colors shadow-sm">
-            <Plus className="h-3.5 w-3.5" />添加 Provider
-          </button>
+          <div className="relative">
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setTestResult(null); setEditModal({ mode: 'create' }); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] transition-colors shadow-sm">
+                <Plus className="h-3.5 w-3.5" />添加 Provider
+              </button>
+              {templates && templates.length > 0 && (
+                <button onClick={() => setShowTemplateMenu(v => !v)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--primary)] bg-[var(--primary)]/8 hover:bg-[var(--primary)]/15 transition-colors">
+                  快速添加 ▾
+                </button>
+              )}
+            </div>
+            {showTemplateMenu && templates && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowTemplateMenu(false)} />
+                <div className="absolute right-0 mt-2 w-72 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-xl z-20 max-h-96 overflow-y-auto">
+                  {templates.map(t => (
+                    <button
+                      key={t.key}
+                      onClick={() => {
+                        setShowTemplateMenu(false);
+                        setTestResult(null);
+                        // 模板缺省 name 字段（自定义场景），让用户填
+                        const prefilled = {
+                          name: t.name || '',
+                          displayName: t.displayName || '',
+                          protocol: t.protocol || 'openai',
+                          chatUrl: t.chatUrl || '',
+                          chatModel: t.defaultChatModel || '',
+                          apiKey: '',
+                          thinkingEnabled: false,
+                          thinkingConfig: {},
+                        };
+                        setEditModal({ mode: 'create', provider: prefilled, template: t });
+                      }}
+                      className="w-full text-left px-4 py-2.5 hover:bg-[var(--bg)] border-b border-[var(--border)]/50 last:border-b-0"
+                    >
+                      <div className="text-sm font-medium text-[var(--text-primary)]">{t.displayName}</div>
+                      <div className="text-[11px] text-[var(--text-secondary)] mt-0.5 line-clamp-1">{t.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {loading ? (

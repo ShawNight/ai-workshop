@@ -112,12 +112,13 @@ def run_character_designer(state: StoryState) -> StoryState:
 
     resp = call_agent_llm("planner",
                           [{"role": "user", "content": prompt}],
-                          temperature=0.7, max_tokens=LLM_MAX_TOKENS_MEDIUM, timeout=180)
+                          temperature=0.7, max_tokens=LLM_MAX_TOKENS_MEDIUM, timeout=120)
 
     if not resp.success:
-        state.set_agent_state("character_designer", "error", error=f"角色设计调用失败: {resp.error}")
-        state.log_activity("character_designer", "error", f"AI 调用失败: {resp.error}")
-        return state
+        error_msg = f"角色设计调用失败: {resp.error}"
+        state.set_agent_state("character_designer", "error", error=error_msg)
+        state.log_activity("character_designer", "error", error_msg)
+        raise RuntimeError(error_msg)
 
     characters = parse_json_from_response(resp.content, r'\[.*\]')
 
@@ -129,8 +130,10 @@ def run_character_designer(state: StoryState) -> StoryState:
                            f"角色设计完成 — {len(characters)}个角色")
     else:
         # 解析失败，保留现有角色
-        state.set_agent_state("character_designer", "error", error="角色设计结果解析失败")
-        state.log_activity("character_designer", "error", "角色设计结果格式异常")
+        error_msg = "角色设计结果解析失败"
+        state.set_agent_state("character_designer", "error", error=error_msg)
+        state.log_activity("character_designer", "error", error_msg)
+        raise RuntimeError(error_msg)
 
     return state
 

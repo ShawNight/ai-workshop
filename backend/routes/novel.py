@@ -6,7 +6,8 @@ from flask import Blueprint, request, jsonify
 
 from database import (
     create_novel_project, get_novel_project, get_all_novel_projects,
-    update_novel_project, delete_novel_project, update_chapter
+    update_novel_project, delete_novel_project, update_chapter,
+    get_connection, _count_words
 )
 
 novel_bp = Blueprint("novel", __name__)
@@ -298,10 +299,10 @@ def update_chapter_route(project_id, chapter_id):
     data = request.get_json() or {}
     content = data.get('content')
     title = data.get('title')
-    
+
     if content is None and title is None:
         return jsonify({'success': False, 'error': '至少需要提供 content 或 title'}), 400
-    
+
     success = update_chapter(project_id, chapter_id, content=content, title=title)
     if success:
         project = get_novel_project(project_id)
@@ -312,6 +313,140 @@ def update_chapter_route(project_id, chapter_id):
             'totalWordCount': project.get('current_word_count', 0)
         })
     return jsonify({'success': False, 'error': '章节未找到'}), 404
+
+
+@novel_bp.route("/projects/<project_id>/chapters/<chapter_id>/manual-edit", methods=["PUT"])
+def manual_edit_chapter_route(project_id, chapter_id):
+    """人工编辑章节：保存 title/content 并标记 manually_edited=true
+    工作流遇到该标记会跳过自动重写（除非在 revising 阶段）。
+    """
+    import json as _json
+    from database import get_novel_project
+    from datetime import datetime
+
+    data = request.get_json() or {}
+    content = data.get('content')
+    title = data.get('title')
+    mark_manual = data.get('manuallyEdited', True)
+    update_status = data.get('status')
+
+    if content is None and title is None:
+        return jsonify({'success': False, 'error': '至少需要提供 content 或 title'}), 400
+
+    try:
+        project = get_novel_project(project_id)
+        if not project:
+            return jsonify({'success': False, 'error': '项目不存在'}), 404
+
+        chapters = project.get('chapters', [])
+        found_idx = None
+        for i, ch in enumerate(chapters):
+            if ch.get('id') == chapter_id:
+                found_idx = i
+                if content is not None:
+                    chapters[i]['content'] = content
+                    chapters[i]['wordCount'] = len(content)
+                if title is not None:
+                    chapters[i]['title'] = title
+                if mark_manual:
+                    chapters[i]['manuallyEdited'] = True
+                    chapters[i]['manualEditedAt'] = datetime.now().isoformat()
+                if update_status:
+                    chapters[i]['status'] = update_status
+                break
+        if found_idx is None:
+            return jsonify({'success': False, 'error': '章节未找到'}), 404
+
+        total_words = sum(_count_words(c.get('content', '')) for c in chapters)
+
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE novel_projects SET chapters = ?, current_word_count = ?, updated_at = ? WHERE id = ?',
+                (_json.dumps(chapters, ensure_ascii=False), total_words,
+                 datetime.now().isoformat(), project_id)
+            )
+            conn.commit()
+
+        try:
+            from agents import _states
+            state = _states.get(project_id)
+            if state and 'chapters' in state.__dict__:
+                for j, sc in enumerate(state.chapters):
+                    if sc.get('id') == chapter_id or j == found_idx:
+                        if content is not None:
+                            sc['content'] = content
+                            sc['word_count'] = len(content)
+                        if title is not None:
+                            sc['title'] = title
+                        if mark_manual:
+                            sc['manually_edited'] = True
+                        if update_status:
+                            sc['status'] = update_status
+                        break
+        except Exception:
+            pass
+
+        return jsonify({
+            'success': True,
+            'chapter': chapters[found_idx],
+            'totalWordCount': total_words,
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@novel_bp.route("/projects/<project_id>/chapters/<chapter_id>/reset-manual", methods=["DELETE"])
+def reset_manual_chapter_route(project_id, chapter_id):
+    """清除章节的 manually_edited 标记，允许工作流重写"""
+    import json as _json
+    from database import get_novel_project
+    from datetime import datetime
+
+    try:
+        project = get_novel_project(project_id)
+        if not project:
+            return jsonify({'success': False, 'error': '项目不存在'}), 404
+
+        chapters = project.get('chapters', [])
+        found_idx = None
+        for i, ch in enumerate(chapters):
+            if ch.get('id') == chapter_id:
+                chapters[i].pop('manuallyEdited', None)
+                chapters[i].pop('manualEditedAt', None)
+                chapters[i]['status'] = 'pending'
+                found_idx = i
+                break
+        if found_idx is None:
+            return jsonify({'success': False, 'error': '章节未找到'}), 404
+
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE novel_projects SET chapters = ?, updated_at = ? WHERE id = ?',
+                (_json.dumps(chapters, ensure_ascii=False), datetime.now().isoformat(), project_id)
+            )
+            conn.commit()
+
+        try:
+            from agents import _states
+            state = _states.get(project_id)
+            if state and 'chapters' in state.__dict__:
+                for j, sc in enumerate(state.chapters):
+                    if j == found_idx:
+                        sc.pop('manually_edited', None)
+                        sc['status'] = 'pending'
+                        sc['content'] = ''
+                        sc['word_count'] = 0
+                        break
+        except Exception:
+            pass
+
+        return jsonify({'success': True, 'chapter': chapters[found_idx]})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 def _extract_summary(content, chapter_title, genre):

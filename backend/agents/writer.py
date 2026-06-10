@@ -71,13 +71,14 @@ def run_writer(state: StoryState) -> StoryState:
 
 请直接输出小说正文，不要添加任何标记或说明。"""
 
-    resp = call_agent_llm("writer", [{"role": "user", "content": prompt}], temperature=0.7)
+    resp = call_agent_llm("writer", [{"role": "user", "content": prompt}], temperature=0.7, timeout=300)
     result = resp.content if resp.success else None
 
     if result is None:
-        state.set_agent_state("writer", "error", error="AI 服务暂时不可用")
-        state.log_activity("writer", "error", "写手调用失败")
-        return state
+        error_msg = "AI 服务暂时不可用"
+        state.set_agent_state("writer", "error", error=error_msg)
+        state.log_activity("writer", "error", f"写手调用失败: {state.agent_states.get('writer', {}).get('error', '')}")
+        raise RuntimeError(error_msg)
 
     # 清理输出
     content = result.strip()

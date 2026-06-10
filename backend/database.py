@@ -210,17 +210,80 @@ def init_db():
                 (agent,)
             )
 
+        # Agent 运行历史表（每次 LLM 调用都记录一条）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                chapter_index INTEGER,
+                phase TEXT DEFAULT '',
+                input_messages TEXT DEFAULT '[]',
+                output TEXT DEFAULT '',
+                output_parsed TEXT,
+                status TEXT DEFAULT 'success',
+                error TEXT,
+                duration_ms INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES novel_projects(id) ON DELETE CASCADE
+            )
+        """)
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_project ON agent_runs(project_id, created_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(project_id, agent_name, created_at DESC)")
+        except Exception:
+            pass
+
+        # 蓝图变更历史表（记录 design 每次更新的来源 + diff）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS blueprint_changes (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                change_data TEXT DEFAULT '{}',
+                chapter_index INTEGER,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES novel_projects(id) ON DELETE CASCADE
+            )
+        """)
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_blueprint_changes_project ON blueprint_changes(project_id, created_at DESC)")
+        except Exception:
+            pass
+
         # providers 表迁移：新增思考模式字段
         provider_migrations = [
             "ALTER TABLE providers ADD COLUMN thinking_enabled INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE providers ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'high'",
             "ALTER TABLE providers ADD COLUMN thinking_budget INTEGER NOT NULL DEFAULT 10000",
+            # Phase 2 改造：thinking_config 存协议特定的 JSON 配置
+            "ALTER TABLE providers ADD COLUMN thinking_config TEXT NOT NULL DEFAULT '{}'",
         ]
         for m in provider_migrations:
             try:
                 cursor.execute(m)
             except sqlite3.OperationalError:
                 pass
+
+        # 旧 → 新 protocol 协议名迁移（openai → 拆成 deepseek/minimax/openai）
+        # 仅当新 protocol 列存在时才执行（避免重复迁移报错）
+        try:
+            cursor.execute("SELECT name, protocol FROM providers")
+            for row in cursor.fetchall():
+                if row["protocol"] == "openai":
+                    # 根据 name 推断
+                    new_proto = {
+                        "deepseek": "deepseek",
+                        "minimax": "minimax",
+                    }.get(row["name"], "openai")
+                    if new_proto != "openai":
+                        cursor.execute(
+                            "UPDATE providers SET protocol = ? WHERE name = ?",
+                            (new_proto, row["name"])
+                        )
+        except Exception:
+            pass
 
         # 从旧 provider_config 表迁移数据到 provider_settings
         try:
@@ -673,6 +736,164 @@ def update_agent_config(agent_name: str, provider_name: str, model_name: str) ->
         )
         conn.commit()
         return True
+
+
+# ==================== Agent 运行历史操作 ====================
+
+def insert_agent_run(run_id: str, project_id: str, agent_name: str,
+                    chapter_index: int = None, phase: str = "",
+                    input_messages: list = None, output: str = "",
+                    output_parsed: dict = None, status: str = "success",
+                    error: str = None, duration_ms: int = 0) -> bool:
+    """记录一次 agent LLM 调用"""
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO agent_runs (id, project_id, agent_name, chapter_index,
+                phase, input_messages, output, output_parsed, status, error,
+                duration_ms, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            run_id, project_id, agent_name, chapter_index, phase,
+            json.dumps(input_messages or [], ensure_ascii=False),
+            output or "",
+            json.dumps(output_parsed, ensure_ascii=False) if output_parsed is not None else None,
+            status, error, duration_ms, now
+        ))
+        conn.commit()
+        return True
+
+
+def list_agent_runs(project_id: str, agent_name: str = None,
+                    limit: int = 50, chapter_index: int = None) -> list:
+    """列出某项目的 agent 运行历史"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        sql = "SELECT * FROM agent_runs WHERE project_id = ?"
+        params = [project_id]
+        if agent_name:
+            sql += " AND agent_name = ?"
+            params.append(agent_name)
+        if chapter_index is not None:
+            sql += " AND chapter_index = ?"
+            params.append(chapter_index)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "projectId": r["project_id"],
+                "agentName": r["agent_name"],
+                "chapterIndex": r["chapter_index"],
+                "phase": r["phase"],
+                "inputMessages": json.loads(r["input_messages"]) if r["input_messages"] else [],
+                "output": r["output"],
+                "outputParsed": json.loads(r["output_parsed"]) if r["output_parsed"] else None,
+                "status": r["status"],
+                "error": r["error"],
+                "durationMs": r["duration_ms"],
+                "createdAt": r["created_at"],
+            }
+            for r in rows
+        ]
+
+
+def get_agent_run(run_id: str) -> dict | None:
+    """获取单次 agent 运行的完整信息"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "agentName": row["agent_name"],
+            "chapterIndex": row["chapter_index"],
+            "phase": row["phase"],
+            "inputMessages": json.loads(row["input_messages"]) if row["input_messages"] else [],
+            "output": row["output"],
+            "outputParsed": json.loads(row["output_parsed"]) if row["output_parsed"] else None,
+            "status": row["status"],
+            "error": row["error"],
+            "durationMs": row["duration_ms"],
+            "createdAt": row["created_at"],
+        }
+
+
+def get_latest_agent_run(project_id: str, agent_name: str) -> dict | None:
+    """获取某 agent 最近一次运行记录"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM agent_runs
+            WHERE project_id = ? AND agent_name = ?
+            ORDER BY created_at DESC LIMIT 1
+        """, (project_id, agent_name))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "agentName": row["agent_name"],
+            "chapterIndex": row["chapter_index"],
+            "phase": row["phase"],
+            "inputMessages": json.loads(row["input_messages"]) if row["input_messages"] else [],
+            "output": row["output"],
+            "outputParsed": json.loads(row["output_parsed"]) if row["output_parsed"] else None,
+            "status": row["status"],
+            "error": row["error"],
+            "durationMs": row["duration_ms"],
+            "createdAt": row["created_at"],
+        }
+
+
+# ==================== 蓝图变更历史操作 ====================
+
+def insert_blueprint_change(change_id: str, project_id: str, source: str,
+                            change_type: str, change_data: dict,
+                            chapter_index: int = None) -> bool:
+    """记录一次蓝图变更"""
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO blueprint_changes (id, project_id, source, change_type,
+                change_data, chapter_index, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (change_id, project_id, source, change_type,
+              json.dumps(change_data, ensure_ascii=False), chapter_index, now))
+        conn.commit()
+        return True
+
+
+def list_blueprint_changes(project_id: str, limit: int = 50) -> list:
+    """列出项目蓝图变更历史"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM blueprint_changes WHERE project_id = ?
+            ORDER BY created_at DESC LIMIT ?
+        """, (project_id, limit))
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "projectId": r["project_id"],
+                "source": r["source"],
+                "changeType": r["change_type"],
+                "changeData": json.loads(r["change_data"]) if r["change_data"] else {},
+                "chapterIndex": r["chapter_index"],
+                "createdAt": r["created_at"],
+            }
+            for r in rows
+        ]
 
 
 # ==================== Provider 模型列表操作 ====================

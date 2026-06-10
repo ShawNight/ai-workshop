@@ -92,28 +92,30 @@ class WorkflowEngine:
         self._edge_map[edge.from_node].append(edge)
 
     def build_planning_graph(self):
-        """构建策划阶段 DAG
+        """构建策划阶段 DAG（LR 布局：左→右，纵向分支）
 
-        outline_planner 先执行，然后 character_designer 和 world_builder 并行
+        outline_planner (左) → {character_designer, world_builder, foreshadow_planner} (中列) → planning_done (右)
         """
         self.nodes.clear()
         self.edges.clear()
         self._edge_map.clear()
 
+        # 列 0: 起点
         self.add_node(WorkflowNode(
             id="outline_planner",
             label="大纲策划",
             agent_fn=self._fn_outline_planner,
             status="ready",
-            position={"x": 200, "y": 0},
+            position={"x": 0, "y": 100},
         ))
 
+        # 列 1: 三个并行节点（垂直排列）
         self.add_node(WorkflowNode(
             id="character_designer",
             label="角色设计",
             agent_fn=self._fn_character_designer,
             depends_on=["outline_planner"],
-            position={"x": 100, "y": 120},
+            position={"x": 260, "y": 0},
         ))
 
         self.add_node(WorkflowNode(
@@ -121,7 +123,7 @@ class WorkflowEngine:
             label="世界观设计",
             agent_fn=self._fn_world_builder,
             depends_on=["outline_planner"],
-            position={"x": 300, "y": 120},
+            position={"x": 260, "y": 100},
         ))
 
         self.add_node(WorkflowNode(
@@ -129,14 +131,15 @@ class WorkflowEngine:
             label="伏笔规划",
             agent_fn=self._fn_foreshadow_planner,
             depends_on=["outline_planner"],
-            position={"x": 200, "y": 240},
+            position={"x": 260, "y": 200},
         ))
 
+        # 列 2: 汇合点
         self.add_node(WorkflowNode(
             id="planning_done",
             label="策划完成",
             depends_on=["character_designer", "world_builder", "foreshadow_planner"],
-            position={"x": 200, "y": 360},
+            position={"x": 520, "y": 100},
         ))
 
         self.add_edge(WorkflowEdge("outline_planner", "character_designer"))
@@ -147,9 +150,10 @@ class WorkflowEngine:
         self.add_edge(WorkflowEdge("foreshadow_planner", "planning_done"))
 
     def build_chapter_graph(self, chapter_index: int):
-        """构建单章写作 DAG
+        """构建单章写作 DAG（LR 布局：左→右，pass 走上方 / fail 走下方）
 
-        writer → critic → (pass→editor→done | fail→writer修订)
+        writer → critic → {editor (pass) → done
+                            revise (fail) → re_review → done}
         """
         ch = chapter_index + 1  # 1-based for display
         prefix = f"ch{ch}"
@@ -158,29 +162,32 @@ class WorkflowEngine:
         self.edges.clear()
         self._edge_map.clear()
 
+        # 列 0: 起点
         self.add_node(WorkflowNode(
             id=f"{prefix}_writer",
             label=f"写手·第{ch}章",
             agent_fn=lambda s, ci=chapter_index: self._fn_writer(s),
             status="ready",
-            position={"x": 150, "y": 0},
+            position={"x": 0, "y": 100},
         ))
 
+        # 列 1: 审查
         self.add_node(WorkflowNode(
             id=f"{prefix}_critic",
             label=f"评论家·第{ch}章",
             agent_fn=lambda s: self._fn_critic(s),
             depends_on=[f"{prefix}_writer"],
-            position={"x": 150, "y": 120},
+            position={"x": 260, "y": 100},
         ))
 
+        # 列 2: pass (上) / fail (下) 分支
         self.add_node(WorkflowNode(
             id=f"{prefix}_editor",
             label=f"编辑·第{ch}章",
             agent_fn=lambda s: self._fn_editor(s),
             depends_on=[f"{prefix}_critic"],
             condition="pass",
-            position={"x": 50, "y": 240},
+            position={"x": 520, "y": 0},
         ))
 
         self.add_node(WorkflowNode(
@@ -189,23 +196,24 @@ class WorkflowEngine:
             agent_fn=lambda s: self._fn_writer(s),
             depends_on=[f"{prefix}_critic"],
             condition="fail",
-            position={"x": 300, "y": 240},
+            position={"x": 520, "y": 200},
         ))
 
-        # 修改后回到评论家
+        # 列 3: 复审（仅 fail 分支）
         self.add_node(WorkflowNode(
             id=f"{prefix}_re_review",
             label=f"复审·第{ch}章",
             agent_fn=lambda s: self._fn_critic(s),
             depends_on=[f"{prefix}_revise"],
-            position={"x": 300, "y": 360},
+            position={"x": 780, "y": 200},
         ))
 
+        # 列 4: 汇合点（editor 与 re_review 合并）
         self.add_node(WorkflowNode(
             id=f"{prefix}_done",
             label=f"第{ch}章完成",
             depends_on=[f"{prefix}_editor", f"{prefix}_re_review"],
-            position={"x": 200, "y": 480},
+            position={"x": 1040, "y": 100},
         ))
 
         # 边
@@ -273,12 +281,21 @@ class WorkflowEngine:
             try:
                 if node.agent_fn:
                     self.state = node.agent_fn(self.state)
-                    node.status = "done"
-                    node.error = ""
-                    executed.append(node.id)
-                    self._notify(node.id, "done")
 
-                    # 持久化
+                    # 关键修复：agent 内部 set_agent_state("error") 时不抛异常
+                    # DAG 引擎需要检测到错误状态并把节点标记为 failed
+                    agent_key = self._node_to_agent_key(node.id)
+                    agent_state = self.state.agent_states.get(agent_key, {})
+                    if agent_state.get("status") == "error":
+                        node.status = "failed"
+                        node.error = agent_state.get("error") or "agent 内部错误"
+                        self._notify(node.id, "failed")
+                    else:
+                        node.status = "done"
+                        node.error = ""
+                        executed.append(node.id)
+                        self._notify(node.id, "done")
+
                     StateStore.save(self.state)
                 else:
                     # 无执行函数的节点（如 "planning_done"），直接标记完成
@@ -289,10 +306,28 @@ class WorkflowEngine:
                 node.status = "failed"
                 node.error = str(e)
                 self._notify(node.id, "failed")
+                StateStore.save(self.state)
                 import traceback
                 traceback.print_exc()
 
         return executed
+
+    @staticmethod
+    def _node_to_agent_key(node_id: str) -> str:
+        """DAG 节点 ID → agent_states 中的键名映射"""
+        import re
+        # planning 节点
+        if node_id == "outline_planner":
+            return "planner"
+        # chapter 节点：ch1_writer → writer（严格匹配 ch\d+_xxx 格式）
+        m = re.match(r"^ch\d+_(\w+)$", node_id)
+        if m:
+            suffix = m.group(1)
+            mapping = {"writer": "writer", "critic": "critic", "editor": "editor",
+                       "revise": "writer", "re_review": "critic"}
+            return mapping.get(suffix, suffix)
+        # 其它节点（character_designer / world_builder / foreshadow_planner）id 本身就是 agent key
+        return node_id
 
     def run_until_blocked(self, max_steps: int = 50) -> list[str]:
         """循环执行直到没有就绪节点"""
@@ -303,7 +338,36 @@ class WorkflowEngine:
                 break
             executed = self.run_ready()
             all_executed.extend(executed)
+
+        # 最终评估所有 sync 节点（无 agent_fn 的汇合节点）
+        # 确保 planning_done 不会因为上游 failed 而被误标为 done
+        self._evaluate_sync_nodes()
         return all_executed
+
+    def _evaluate_sync_nodes(self):
+        """根据上游节点状态重新评估 sync 节点
+
+        sync 节点（如 planning_done、chN_done）是无 agent_fn 的汇合点。
+        默认 run_ready 在 else 分支把它们标为 done，但那只在所有上游都 done 时才正确。
+        如果上游有 failed 节点，sync 应该被标为 skipped 而非 done。
+        """
+        for node in self.nodes.values():
+            if node.agent_fn or not node.depends_on:
+                continue
+            if node.status == "done":
+                continue  # 已经正确的 done 不动
+            upstream = [self.nodes.get(d) for d in node.depends_on]
+            upstream = [n for n in upstream if n is not None]
+            if not upstream:
+                continue
+            statuses = [n.status for n in upstream]
+            if any(s == "failed" for s in statuses):
+                node.status = "skipped"
+                self._notify(node.id, "skipped")
+            elif all(s == "done" for s in statuses):
+                node.status = "done"
+                self._notify(node.id, "done")
+            # else: 保持 pending（还有上游在跑）
 
     def is_complete(self) -> bool:
         """检查所有节点是否完成"""
@@ -316,7 +380,7 @@ class WorkflowEngine:
     # ==================== 通知 ====================
 
     def _notify(self, node_id: str, status: str):
-        """推送节点状态变化事件"""
+        """推送节点状态变化事件（包含完整 workflow 快照，减少前端回询）"""
         try:
             tq = TaskQueue.get_instance()
             tq.notify_sse(self.state.project_id, {
@@ -324,6 +388,7 @@ class WorkflowEngine:
                 "nodeId": node_id,
                 "status": status,
                 "phase": self.state.phase,
+                "workflow": self.to_dict(),
             })
         except Exception:
             pass

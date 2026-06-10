@@ -14,6 +14,7 @@ from database import (
     update_provider_model, delete_provider_model,
 )
 from providers.protocols import PROTOCOLS
+from providers.templates import PROVIDER_TEMPLATES
 from config import get_proxies
 
 provider_bp = Blueprint("provider", __name__)
@@ -99,9 +100,7 @@ def test_provider(name):
         return jsonify({"success": False, "error": "未配置 API Key"})
 
     try:
-        protocol = PROTOCOLS.get(provider.protocol)
-        if not protocol:
-            return jsonify({"success": False, "error": f"未知协议: {provider.protocol}"})
+        protocol = PROTOCOLS.get(provider.protocol) or PROTOCOLS["openai"]
 
         headers = protocol.build_headers(provider.api_key)
         body = protocol.build_body(
@@ -109,7 +108,7 @@ def test_provider(name):
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=5,
             temperature=0,
-            thinking_enabled=False,
+            thinking=None,
         )
 
         resp = http_requests.post(
@@ -134,15 +133,23 @@ def test_provider(name):
 
 @provider_bp.route("/protocols", methods=["GET"])
 def list_protocols():
-    """列出可用协议"""
+    """列出可用协议 — 返回每个协议的 thinkingSchema 供前端 UI 渲染"""
     protocols = []
     for name, proto in PROTOCOLS.items():
-        protocols.append({
+        item = {
             "name": name,
             "displayName": proto.get_display_name(),
             "supportsThinking": proto.supports_thinking(),
-        })
+            "thinkingSchema": proto.get_thinking_schema(),
+        }
+        protocols.append(item)
     return jsonify({"success": True, "protocols": protocols})
+
+
+@provider_bp.route("/templates", methods=["GET"])
+def list_templates():
+    """列出 Provider 模板 — 前端"快速添加"使用"""
+    return jsonify({"success": True, "templates": PROVIDER_TEMPLATES})
 
 
 @provider_bp.route("/config", methods=["GET"])
